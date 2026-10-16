@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>HarmonyStartupOptimizer.MonoSmoke</AssemblyName>
+    <FindDependenciesOfExternallyResolvedReferences>false</FindDependenciesOfExternallyResolvedReferences>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\HarmonyStartupOptimizer.csproj" />
+    <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" ExternallyResolved="true" />
+  </ItemGroup>
+</Project>

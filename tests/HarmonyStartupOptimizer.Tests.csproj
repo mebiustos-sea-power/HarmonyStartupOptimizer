@@ -1,0 +1,11 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <AssemblyName>HarmonyStartupOptimizer.Tests</AssemblyName>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Remove="MonoSmoke\**\*" />
+    <Compile Include="..\src\TypeLookupCache.cs" Link="TypeLookupCache.cs" />
+  </ItemGroup>
+</Project>
