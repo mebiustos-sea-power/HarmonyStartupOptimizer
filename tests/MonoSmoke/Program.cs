@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Reflection;
 using System.Reflection.Emit;
@@ -37,6 +38,10 @@ internal static class Program
         try
         {
             Console.WriteLine("Runtime: " + typeof(object).Assembly.Location);
+            OptionalOverlaySettings();
+            Assembly game = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "Seapower-Scripts.dll"));
+            _ = new StartupScreen(game);
+            Console.WriteLine("PASS startup display: menu and loading-screen API bindings in the current game");
             observer.Patch(LookupHooks.Target,
                 prefix: new HarmonyMethod(typeof(Program), nameof(OtherPrefix)),
                 postfix: new HarmonyMethod(typeof(Program), nameof(OtherPostfix)),
@@ -63,6 +68,39 @@ internal static class Program
         finally { Reset(); observer.Unpatch(LookupHooks.Target, HarmonyPatchType.All, observer.Id); }
     }
 
+    private static void OptionalOverlaySettings()
+    {
+        string root = Path.Combine(Path.GetTempPath(), "HarmonyStartupOptimizer-settings-" + Guid.NewGuid().ToString("N"));
+        string directory = Path.Combine(root, "optional");
+        string path = Path.Combine(directory, "overlay.cfg");
+        try
+        {
+            // The game normally initializes these paths before any mod reads settings.
+            Type paths = Assembly.Load("BepInEx").GetType("BepInEx.Paths", true)!;
+            Method(paths, "SetExecutablePath").Invoke(null, new object?[]
+                { Path.Combine(root, "Sea Power.exe"), Path.Combine(root, "BepInEx"), Path.GetDirectoryName(typeof(object).Assembly.Location), null });
+            Assert(OverlaySettings.ReadEnabled(path) && !Directory.Exists(directory), "Missing settings must enable the overlay without creating files or directories.");
+            Directory.CreateDirectory(directory);
+            foreach (bool enabled in new[] { true, false })
+            {
+                string contents = "# User settings\n[Overlay]\nEnabled = " + enabled.ToString().ToLowerInvariant() + "\n";
+                File.WriteAllText(path, contents);
+                File.SetAttributes(path, FileAttributes.ReadOnly);
+                try
+                {
+                    Assert(OverlaySettings.ReadEnabled(path) == enabled, "The user's overlay setting was ignored.");
+                    Assert(File.ReadAllText(path) == contents, "Reading settings changed the user's file.");
+                }
+                finally { File.SetAttributes(path, FileAttributes.Normal); }
+            }
+            File.WriteAllText(path, "[Overlay]\nEnabled = invalid\n");
+            try { OverlaySettings.ReadEnabled(path); throw new Exception("An invalid overlay setting silently used a default."); }
+            catch (FormatException) { }
+            Console.WriteLine("PASS optional overlay settings: absent default, true/false, read-only file unchanged, invalid value rejected");
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
     private static bool OtherPrefix(ref string? __0, ref Type? __result)
     {
         Interlocked.Increment(ref prefixes);
@@ -79,8 +117,7 @@ internal static class Program
         if (transform) __result = __result == typeof(string) ? typeof(int) : typeof(bool);
     }
 
-    // Test-only instrumentation counts actual resolver-body executions. Production
-    // code no longer needs counters or snapshots for these behavior assertions.
+    // Counts actual resolver-body executions independently of the display counter.
     private static IEnumerable<CodeInstruction> ObserveOriginalBody(IEnumerable<CodeInstruction> instructions)
     {
         yield return new CodeInstruction(OpCodes.Call, Method(typeof(Program), nameof(OriginalBodyEntered)));
@@ -99,6 +136,7 @@ internal static class Program
             Assert(AccessTools.TypeByName("alias fixture") == typeof(int), "Prefix argument mutation or postfix result changed.");
             Assert(AccessTools.TypeByName("alias fixture") == typeof(int), "A postprocessed result was transformed twice on a hit.");
             Assert(originalBodies - beforeOriginal == 1, "Shared query was not reused.");
+            Assert(hooks.Cache.Hits == 1, "The displayed counter did not record the actual shared-cache hit.");
             Assert(prefixes - beforePrefix == 2 && postfixes - beforePostfix == 2, "A cache hit skipped another owner's prefix or postfix.");
             Reset();
             Assert(AccessTools.TypeByName("System.String") == typeof(string) && originalBodies - beforeOriginal == 1,
@@ -122,6 +160,7 @@ internal static class Program
             skip = true;
             Assert(AccessTools.TypeByName("System.String") == typeof(Guid) && AccessTools.TypeByName("System.String") == typeof(Guid), "Another prefix's result was overridden.");
             Assert(originalBodies == beforeOriginal, "An invocation skipped by another prefix entered the resolver body.");
+            Assert(hooks.Cache.Hits == 0, "Calls skipped by another prefix were reported as cache hits.");
             skip = false; throwPrefix = true;
             try { AccessTools.TypeByName("System.String"); throw new Exception("Prefix exception was swallowed."); }
             catch (Exception error) { Assert(ReferenceEquals(error, Expected), "Prefix exception changed."); }
@@ -143,6 +182,11 @@ internal static class Program
             catch (Exception error) { Assert(ReferenceEquals(error, Expected), "Postfix exception changed."); }
             Assert(AccessTools.TypeByName("System.String") == typeof(string) && AccessTools.TypeByName("System.String") == typeof(string), "Resolution did not recover.");
             Assert(originalBodies - beforeOriginal == 2, "A failed call populated the cache or a successful result was not reused.");
+            Assert(hooks.Cache.Hits == 1, "Failed or uncached calls were reported as cache hits.");
+            postfixFailures = 1;
+            try { AccessTools.TypeByName("System.String"); throw new Exception("Cached-call postfix exception was swallowed."); }
+            catch (Exception error) { Assert(ReferenceEquals(error, Expected), "Cached-call postfix exception changed."); }
+            Assert(hooks.Cache.Hits == 1, "A cache hit that failed in a postfix was reported as a successful reuse.");
             Console.WriteLine("PASS postfix failure: exception propagated, failed raw result not published, next call retried");
         }
         finally { Reset(); hooks.Uninstall(); }

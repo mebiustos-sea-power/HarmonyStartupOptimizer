@@ -5,7 +5,7 @@ Harmony共通の型探索をキャッシュし、同じ型を繰り返し探すM
 - MOD表示名: `Harmony Startup Optimizer`
 - フォルダ / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - 内部識別子 / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- バージョン: `0.1.1`
+- バージョン: `0.1.2`
 - 必須: Anchor Chain
 - BDCMおよびStartup Diagnosticsへの実行時依存はありません。
 
@@ -58,6 +58,32 @@ Startup Diagnosticsは任意です。診断MODを有効にしておくと、既�
 汎用版ではキャッシュヒットもTypeByNameへの呼び出しとして診断されるため、
 専用版と異なり診断MODの探索回数はヒット分も含みます。所要時間と汎用版のヒット数を合わせて評価してください。
 
+## 起動中の動作表示
+
+画面下中央に `Harmony Startup Optimizer | Active | Cache hits: 12,345` の形式で表示します。
+`Active`はキャッシュの導入成功、`Cache hits`はキャッシュを再利用して正常終了した呼び出しの累計です。
+初回の探索、未発見、例外、他のパッチが探索を省略した呼び出しはヒットに含めません。
+ロード画面では再利用回数が0の間は `Harmony Startup Optimizer | Active` だけを表示し、1以上なら回数も表示します。
+メインメニューでは、0でも `Cache hits: 0` を表示します。
+
+位置は現在の画面サイズから計算して下中央に揃え、文字サイズと下端の余白も解像度に応じて調整します。
+ロード画面とメインメニューで同じ位置を使い、文字の高さに合わせた表示領域を下端へ寄せ、小さな余白を残します。
+表示内容とメニュー状態の確認は毎秒最大4回です。ゲームが重い処理で画面を更新できない間は数字も更新されません。
+ロード画面が閉じ、メインメニューが表示されてから3秒で表示だけを削除します。
+以後もキャッシュは有効なままです。表示に失敗した場合は共通ログにエラーを記録し、キャッシュは継続します。
+Startup Diagnosticsは必要ありません。
+
+### オーバーレイの設定
+
+表示を無効にする場合は、ゲームフォルダー内の `BepInEx/config/mebiustos.harmonystartupoptimizer.cfg` を手動で作成し、次の内容を記述します。
+
+```ini
+[Overlay]
+Enabled = false
+```
+
+設定ファイルがない場合、または `Enabled = true` の場合は表示が有効です。表示を無効にしてもキャッシュは継続します。
+
 ## ログ
 
 `BepInEx/LogOutput.log`の`Harmony Startup Optimizer`を確認します。
@@ -69,6 +95,8 @@ Startup Diagnosticsは任意です。診断MODを有効にしておくと、既�
 0.1.1では独自JSON出力、保存先フォルダの作成、定期的な集計とログ出力、
 型名ごとの統計保持、探索ごとの時間計測を削除しました。
 キャッシュ本体は成功結果と無効化世代、呼び出しの正常終了を管理する情報だけを保持します。
+
+0.1.2では画面表示用の再利用回数だけを追加しました。独自ログファイル、定期的な詳細集計、探索ごとの時間計測は追加しません。
 
 0.1.0が作成した過去の`HarmonyStartupOptimizer/*.summary.json`は自動削除しません。
 更新・新規作成もしません。過去の計測結果として扱ってください。
@@ -104,6 +132,8 @@ Windows .NET SDK 10を使用します。NuGetパッケージは不要です。
 - `TypeLookupCache.cs`: ゲーム・Harmonyに依存しない、成功結果の共有、無効化、並列制御。
 - `LookupHooks.cs`: 共通の型探索APIとの接続。他のパッチとの実行順・引数・戻り値・例外の維持。
 - `Plugin.cs`: Anchor Chain、有効状態確認、最小限のログ、ライフサイクル。
+- `StartupOverlay.cs`: 起動中の動作表示、解像度への追従、表示だけの終了処理。
+- `StartupScreen.cs`: ゲームのメニューとロード画面の状態を読み取る表示終了判定。
 - `ModActivation.cs`: Sea PowerのMOD管理状態の読み取り。
 - `PatchRegistry.cs`: 自分のHarmonyパッチだけの導入・巻き戻し・解除。
 

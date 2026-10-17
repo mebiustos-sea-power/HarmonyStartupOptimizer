@@ -10,7 +10,10 @@ internal sealed class TypeLookupCache
     private readonly object gate = new object();
     private readonly Dictionary<string, Type> entries = new Dictionary<string, Type>(StringComparer.Ordinal);
     private long generation;
+    private long hits;
     private bool active = true;
+
+    internal long Hits { get { lock (gate) return hits; } }
 
     internal LookupRequest? Begin(string? name)
     {
@@ -41,6 +44,7 @@ internal sealed class TypeLookupCache
             if (request.Finished) return;
             request.Finished = true;
             bool failed = error != null || (!request.IsHit && !request.OriginalReturned);
+            if (request.IsHit && !failed) hits++;
             if (active && request.Generation == generation && request.Name != null)
             {
                 if (failed) entries.Remove(request.Name);

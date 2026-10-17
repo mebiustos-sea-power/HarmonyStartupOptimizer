@@ -35,6 +35,7 @@ public sealed class Plugin : IAnchorChainMod
             host.hideFlags = HideFlags.HideAndDontSave;
             host.AddComponent<OptimizerHost>().Initialize(hooks);
             Log.LogInfo("Active: shared TypeByName cache (Harmony " + LookupHooks.Target.DeclaringType!.Assembly.GetName().Version + ").");
+            StartupOverlay.Attach(host, game, hooks.Cache);
         }
         catch (Exception error)
         {

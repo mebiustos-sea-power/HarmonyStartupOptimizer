@@ -35,6 +35,7 @@ internal static class Program
                 Type? Original() { originals++; return typeof(string); }
                 Assert(Resolve(cache, "A", Original) == typeof(string) && Resolve(cache, "A", Original) == typeof(string), "Original type changed.");
                 Assert(originals == 1, "Successful resolution was not reused.");
+                Assert(cache.Hits == 1, "The displayed hit count included the initial resolution or missed a reuse.");
             });
             Test("case, namespaces and assembly qualifications remain separate queries", () =>
             {
