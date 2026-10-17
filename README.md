@@ -1,129 +1,129 @@
 # Harmony Startup Optimizer
 
-Harmony共通の型探索をキャッシュし、同じ型を繰り返し探すMODの起動処理を高速化する独立したMODです。
+A standalone mod for Sea Power that caches shared Harmony type lookup results, speeding up startup work in mods that repeatedly search for the same types.
 
-- MOD表示名: `Harmony Startup Optimizer`
-- フォルダ / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
-- 内部識別子 / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- バージョン: `0.1.2`
-- 必須: Anchor Chain
-- BDCMおよびStartup Diagnosticsへの実行時依存はありません。
+- Mod name: `Harmony Startup Optimizer`
+- Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
+- Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
+- Version: `0.1.2`
+- Requires: Anchor Chain
+- No runtime dependency on BDCM or Startup Diagnostics.
 
-## 初版の対象
+## Scope
 
-ゲームに読み込まれた共通Harmonyの`HarmonyLib.AccessTools.TypeByName(string)`を対象にします。
-対象はこの関数を呼ぶすべてのMODです。呼び出し元のMOD名やBDCMの内部メソッドを識別しません。
-ゲームやMODがこの関数を経由せず独自に行う探索、フィールド・プロパティ・メソッド探索、
-パッチ適用処理、ゲーム処理そのものの実行結果は対象外です。
+The optimizer targets `HarmonyLib.AccessTools.TypeByName(string)` in the shared Harmony assembly loaded by the game.
+It applies to all mods that call this function, without identifying callers by mod name or targeting BDCM's internal methods.
+It does not optimize custom lookups that bypass this function, field/property/method lookups,
+patch installation, or game logic itself.
 
-同一の文字列に対する成功した型探索の結果を、現在のゲームプロセス内で共有します。
-初回は元の探索処理をそのまま実行し、型が見つかった場合のみキャッシュします。
-文字列は大文字小文字・名前空間・アセンブリ指定を含めて区別します。
-未発見結果と例外をキャッシュしないため、後から見つかる型は再探索できます。
-アセンブリ追加を検知したらキャッシュを全破棄し、追加前に始まった探索結果も保存しません。
-対象関数に他のパッチが追加・解除されてHarmonyが関数を再構築した場合も、変更前の探索結果を破棄します。
-キャッシュは起動後もプロセス内で利用し、終了時に破棄します。型探索結果をディスクへ永続保存しません。
+Successful type lookup results for identical name strings are shared within the current game process.
+The first lookup runs the original search, and its result is cached only if a type is found.
+Cache keys distinguish case, namespaces, and assembly specifications.
+Missing results and exceptions are not cached, allowing types that become available later to be found on subsequent lookups.
+When a new assembly is detected, the entire cache is cleared, and results from lookups started before that event are not stored.
+The cache is also cleared when patches are added to or removed from the target function and Harmony rebuilds it.
+The cache remains available after startup and is discarded when the game closes. Type lookup results are not saved to disk.
 
-初めて探す型の探索費用は引き続き発生します。追加の短縮量は実際の有効MOD構成で測定してください。
-BDCM専用版で得られた短縮量が、汎用版の追加効果を示すものではありません。
+The first lookup for each type still takes time. Measure the improvement with your actual set of enabled mods.
+Time saved by the earlier BDCM-specific optimizer does not indicate an additional benefit from this general optimizer.
 
-## 他のHarmonyパッチとの併用
+## Compatibility with other Harmony patches
 
-キャッシュによる早期返却はTypeByNameの原処理の内部へ挿入します。
-キャッシュヒット時も、TypeByNameに登録された他のMODのprefix・postfixは通常どおり実行されます。
-他のprefixが変えた後の引数をキーに使い、他のpostfixが加工する前の元のTypeを保存します。
-そのため、保存済みの戻り値へpostfixの加工が二重に適用されることを避けます。
-別のprefixが原処理を省略した場合、このキャッシュの探索処理も実行されません。
-別のパッチが例外を発生させた場合も元の例外を伝え、失敗した呼び出しから新しい結果を保存しません。
+The cache return path is inserted inside TypeByName's original method body.
+Other mods' prefixes and postfixes on TypeByName still run normally on a cache hit.
+The cache uses the argument after other prefixes have modified it and stores the original Type before other postfixes modify the result.
+This prevents postfix transformations from being applied twice to a cached result.
+If another prefix skips the original method, the cache lookup is skipped as well.
+If another patch throws an exception, that exception is propagated, and no new result is stored from the failed call.
 
-キャッシュはスレッド間で同期し、再帰呼び出しの処理状態はスレッドごとに管理します。
-同じ型の最初の探索が同時に走った場合は、複数の元の探索が実行されることを許容します。
-他のパッチの導入・解除、結果の同一性、例外、アセンブリ追加などを実際のゲーム付属Monoで検証します。
-API不一致やパッチ導入・解除の失敗はエラーログとして記録します。
+Cache access is synchronized across threads, with recursive call state tracked separately for each thread.
+Concurrent first lookups for the same type may each run the original search.
+Tests use the Mono runtime bundled with the game to verify patch installation and removal, result identity, exceptions, assembly loading, and related behavior.
+API mismatches and failures to install or remove patches are logged as errors.
 
-## 導入
+## Installation
 
-Sea Powerを終了し、配布用の`dist/HarmonyStartupOptimizer`フォルダを
-ゲームの`Sea Power_Data/StreamingAssets/`へコピーします。
-最終配置は`Sea Power_Data/StreamingAssets/HarmonyStartupOptimizer/HarmonyStartupOptimizer.dll`です。
+Close Sea Power and copy the packaged `dist/HarmonyStartupOptimizer` folder into
+the game's `Sea Power_Data/StreamingAssets/` directory.
+The DLL should be located at `Sea Power_Data/StreamingAssets/HarmonyStartupOptimizer/HarmonyStartupOptimizer.dll`.
 
-MODマネージャーでAnchor ChainとHarmony Startup Optimizerを有効にして再起動します。
-有効化前に発生した型探索へは遡って適用されません。有効・無効の切り替えは次回起動に反映します。
+Enable Anchor Chain and Harmony Startup Optimizer in the mod manager, then restart Sea Power.
+Lookups performed before activation are not affected retroactively. Enabling or disabling the mod takes effect on the next game launch.
 
-比較計測時は旧`BDCM Startup Optimizer`を無効にしてください。
-専用版が先に探索を省略すると、汎用版単独の効果や全体の呼び出し回数を評価できなくなります。
-このMODは旧MODの設定やファイルを自動変更しません。
+Disable the old `BDCM Startup Optimizer` when comparing performance.
+If that optimizer skips lookups first, the effect of this optimizer alone and the overall call count cannot be measured accurately.
+This mod does not automatically change the old mod's settings or files.
 
-Startup Diagnosticsは任意です。診断MODを有効にしておくと、既存の起動処理・BDCM初期化・Check時間を比較できます。
-汎用版ではキャッシュヒットもTypeByNameへの呼び出しとして診断されるため、
-専用版と異なり診断MODの探索回数はヒット分も含みます。所要時間と汎用版のヒット数を合わせて評価してください。
+Startup Diagnostics is optional. Enable it to compare startup, BDCM initialization, and Check timings.
+With this optimizer, cache hits are still recorded as TypeByName calls by the diagnostic mod,
+so its lookup count includes cache hits, unlike with the BDCM-specific optimizer. Consider elapsed time together with this optimizer's cache hit count.
 
-## 起動中の動作表示
+## Startup status display
 
-Sea Powerの起動中に、画面下中央へ動作状況やキャッシュの再利用回数を表示します。
+Displays the optimizer's status and cache hit count at the bottom center of the screen during Sea Power startup.
 
-### オーバーレイの設定
+### Overlay settings
 
-表示を無効にする場合は、ゲームフォルダー内の `BepInEx/config/mebiustos.harmonystartupoptimizer.cfg` を手動で作成し、次の内容を記述します。
+To disable the overlay, manually create `BepInEx/config/mebiustos.harmonystartupoptimizer.cfg` inside the game directory with the following contents:
 
 ```ini
 [Overlay]
 Enabled = false
 ```
 
-設定ファイルがない場合、または `Enabled = true` の場合は表示が有効です。
+The overlay is enabled when the file is absent or `Enabled = true`.
 
-## ログ
+## Logging
 
-`BepInEx/LogOutput.log`の`Harmony Startup Optimizer`を確認します。
-有効な場合は起動時に`Active: shared TypeByName cache (Harmony ...)`を1行出力します。
-無効な場合は起動時にその旨を1行出力します。
-それ以外は、初期化・巻き戻し・終了処理の失敗をエラーとして記録します。
-ゲームや他のパッチの元の例外は引き続き呼び出し元へ伝えます。
+Look for `Harmony Startup Optimizer` entries in `BepInEx/LogOutput.log`.
+When active, the mod writes one startup line: `Active: shared TypeByName cache (Harmony ...)`.
+When disabled, it writes one startup line indicating that state.
+Otherwise, initialization, rollback, and shutdown failures are logged as errors.
+Original exceptions from the game or other patches continue to propagate to the caller.
 
-0.1.1では独自JSON出力、保存先フォルダの作成、定期的な集計とログ出力、
-型名ごとの統計保持、探索ごとの時間計測を削除しました。
-キャッシュ本体は成功結果と無効化世代、呼び出しの正常終了を管理する情報だけを保持します。
+Version 0.1.1 removed separate JSON output, output directory creation, periodic statistics and logging,
+per-type statistics, and per-lookup timing.
+The cache retains only successful results, invalidation generations, and the state needed to track successful call completion.
 
-0.1.2では画面表示用の再利用回数だけを追加しました。独自ログファイル、定期的な詳細集計、探索ごとの時間計測は追加しません。
+Version 0.1.2 adds only a cache hit counter for the overlay. It does not add separate log files, periodic detailed statistics, or per-lookup timing.
 
-0.1.0が作成した過去の`HarmonyStartupOptimizer/*.summary.json`は自動削除しません。
-更新・新規作成もしません。過去の計測結果として扱ってください。
-Startup Diagnosticsを有効にしている場合、診断MOD自身のログ出力は別途継続します。
+Existing `HarmonyStartupOptimizer/*.summary.json` files created by version 0.1.0 are not automatically deleted.
+They are no longer updated, and no new files are created. Keep them as historical measurements if needed.
+If Startup Diagnostics is enabled, its own logging continues independently.
 
-## ビルドと検証
+## Building and testing
 
-Windows .NET SDK 10を使用します。NuGetパッケージは不要です。
-`Directory.Build.local.props`で`SeaPowerDir`と`AnchorChainDir`を指定するか、
-`build.ps1`へ`-GameDirectory`と`-AnchorChainDirectory`を渡します。
+Use .NET SDK 10 on Windows. No NuGet packages are required.
+Set `SeaPowerDir` and `AnchorChainDir` in `Directory.Build.local.props`,
+or pass `-GameDirectory` and `-AnchorChainDirectory` to `build.ps1`.
 
 ```powershell
 .\build.ps1 -Test
 ```
 
-純粋なキャッシュの動作テストに加え、Sea Power付属のMonoとHarmony DLLを使い、実際に共通APIへパッチを当てて検証します。
-他のprefix・postfix、引数・戻り値の加工、原処理の省略、元の例外、未発見の型、
-動的なアセンブリ追加、再帰呼び出し、複数スレッド、所有者ごとの解除を対象とします。
-別のtranspilerの追加・解除で探索処理自体が変わった場合、変更前の結果を使わないことも検証します。
-ゲームにStartup Diagnosticsが導入済みなら、実際の診断DLLとの両方の導入順序も検証します。
-診断DLLがない場合は任意の併用テストだけをSKIPとして表示します。
-ゲーム本体の起動やBDCMのキャンペーン初期化はテストから実行しません。
+In addition to standalone cache behavior tests, the test suite uses Sea Power's bundled Mono runtime and Harmony DLL to patch and exercise the shared API.
+It covers other prefixes and postfixes, argument and result transformations, skipped original calls, original exceptions, missing types,
+dynamic assembly loading, recursion, multiple threads, and patch removal by owner.
+It also verifies that results from before a change are not reused when adding or removing another transpiler changes the lookup implementation.
+If Startup Diagnostics is installed, tests use its actual DLL to check both patch installation orders.
+If the diagnostic DLL is absent, only the optional compatibility tests are reported as SKIP.
+The tests do not launch the game or initialize BDCM campaigns.
 
-配布用ファイルは`dist/HarmonyStartupOptimizer`に生成します。
-ゲームを終了した状態で明示的に導入する場合は、次のコマンドを使用します。
+The distribution package is generated in `dist/HarmonyStartupOptimizer`.
+To build, test, and install it locally, close the game and run:
 
 ```powershell
 .\build.ps1 -Test -InstallLocal
 ```
 
-## ソースの責務
+## Source responsibilities
 
-- `TypeLookupCache.cs`: ゲーム・Harmonyに依存しない、成功結果の共有、無効化、並列制御。
-- `LookupHooks.cs`: 共通の型探索APIとの接続。他のパッチとの実行順・引数・戻り値・例外の維持。
-- `Plugin.cs`: Anchor Chain、有効状態確認、最小限のログ、ライフサイクル。
-- `StartupOverlay.cs`: 起動中の動作表示、解像度への追従、表示だけの終了処理。
-- `StartupScreen.cs`: ゲームのメニューとロード画面の状態を読み取る表示終了判定。
-- `ModActivation.cs`: Sea PowerのMOD管理状態の読み取り。
-- `PatchRegistry.cs`: 自分のHarmonyパッチだけの導入・巻き戻し・解除。
+- `TypeLookupCache.cs`: Sharing successful results, invalidation, and concurrency control, without dependencies on the game or Harmony.
+- `LookupHooks.cs`: Connecting to the shared type lookup API while preserving execution order, arguments, results, and exceptions with other patches.
+- `Plugin.cs`: Anchor Chain integration, activation checks, minimal logging, and lifecycle management.
+- `StartupOverlay.cs`: Startup status display, resolution scaling, and cleanup of the display component.
+- `StartupScreen.cs`: Reading the game's menu and loading screen state to determine when to end the display.
+- `ModActivation.cs`: Reading Sea Power's mod activation state.
+- `PatchRegistry.cs`: Installing, rolling back, and removing only this mod's Harmony patches.
 
-型以外の探索へ広げる場合は、専用のキー・無効化条件を持つキャッシュと接続部分を追加する方針です。
+Support for lookups other than types would use separate caches and hooks, each with its own keys and invalidation rules.
