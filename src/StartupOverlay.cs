@@ -1,7 +1,5 @@
 using System;
 using System.Globalization;
-using System.IO;
-using System.Reflection;
 using UnityEngine;
 
 namespace HarmonyStartupOptimizer;
@@ -9,47 +7,38 @@ namespace HarmonyStartupOptimizer;
 internal sealed class StartupOverlay : MonoBehaviour
 {
     private TypeLookupCache? cache;
-    private StartupScreen? screen;
+    private StartupLifetime? lifetime;
     private GUIStyle? label;
     private Font? font;
     private readonly GUIContent content = new GUIContent();
-    private float nextSample, hideAt = -1;
-    private bool menuDetected, stopped;
+    private bool startupOnly, stopped;
 
-    internal static void Attach(GameObject host, Assembly game, TypeLookupCache cache)
+    internal static StartupOverlay? Attach(GameObject host, TypeLookupCache cache, StartupLifetime lifetime, bool startupOnly)
     {
         StartupOverlay? overlay = null;
         try
         {
-            string settingsPath = Path.Combine(BepInEx.Paths.ConfigPath, ModInfo.Id + ".cfg");
-            if (!OverlaySettings.ReadEnabled(settingsPath)) return;
-            var screen = new StartupScreen(game);
             overlay = host.AddComponent<StartupOverlay>();
-            overlay.screen = screen;
+            overlay.lifetime = lifetime;
             overlay.cache = cache;
+            overlay.startupOnly = startupOnly;
+            overlay.Refresh();
+            return overlay;
         }
         catch (Exception error)
         {
             Plugin.Log.LogError("Startup status display initialization failed: " + error);
             if (overlay != null) overlay.Stop();
+            return null;
         }
     }
 
-    private void Update()
+    internal void Refresh()
     {
-        if (stopped || cache == null) return;
-        float now = Time.realtimeSinceStartup;
-        if (hideAt >= 0 && now >= hideAt) { Stop(); return; }
-        if (now < nextSample) return;
-        nextSample = now + 0.25f;
-        try
-        {
-            if (!menuDetected) menuDetected = screen!.MenuVisible();
-            content.text = ModInfo.Name + (menuDetected
-                ? " | Cache hits: " + cache.Hits.ToString("N0", CultureInfo.InvariantCulture)
-                : " | Active");
-        }
-        catch (Exception error) { Fail(error); }
+        if (stopped || cache == null || lifetime == null) return;
+        content.text = ModInfo.Name + (lifetime.MenuDetected
+            ? " | Cache hits: " + cache.Hits.ToString("N0", CultureInfo.InvariantCulture)
+            : startupOnly ? " | Active (startup only)" : " | Active");
     }
 
     private void OnGUI()
@@ -85,7 +74,7 @@ internal sealed class StartupOverlay : MonoBehaviour
             GUI.Label(rect, content, label);
             // Start after rendering the hit count, rather than counting time spent
             // blocked in a startup operation before the screen can refresh.
-            if (menuDetected && hideAt < 0) hideAt = Time.realtimeSinceStartup + 5;
+            lifetime!.DisplayRendered(Time.realtimeSinceStartup);
         }
         catch (Exception error) { Fail(error); }
         finally { GUI.matrix = previousMatrix; GUI.depth = previousDepth; }
@@ -97,11 +86,10 @@ internal sealed class StartupOverlay : MonoBehaviour
         Stop();
     }
 
-    private void Stop()
+    internal void Stop()
     {
         stopped = true;
         enabled = false;
-        // Only the display is removed; OptimizerHost keeps the cache installed.
         Destroy(this);
     }
 

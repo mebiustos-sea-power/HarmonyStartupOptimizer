@@ -5,7 +5,7 @@ A standalone mod for Sea Power that caches shared Harmony type lookup results, s
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.1.3`
+- Version: `0.1.4`
 - Requires: Anchor Chain
 - No runtime dependency on BDCM or Startup Diagnostics.
 
@@ -22,7 +22,7 @@ Cache keys distinguish case, namespaces, and assembly specifications.
 Missing results and exceptions are not cached, allowing types that become available later to be found on subsequent lookups.
 When a new assembly is detected, the entire cache is cleared, and results from lookups started before that event are not stored.
 The cache is also cleared when patches are added to or removed from the target function and Harmony rebuilds it.
-The cache remains available after startup and is discarded when the game closes. Type lookup results are not saved to disk.
+By default, the cache remains available after startup and is discarded when the game closes. Type lookup results are not saved to disk.
 
 The first lookup for each type still takes time. Measure the improvement with your actual set of enabled mods.
 Time saved by the earlier BDCM-specific optimizer does not indicate an additional benefit from this general optimizer.
@@ -62,6 +62,8 @@ so its lookup count includes cache hits, unlike with the BDCM-specific optimizer
 
 Displays the optimizer's status and cache hit count at the bottom center of the screen during Sea Power startup.
 
+## Settings
+
 ### Overlay settings
 
 To disable the overlay, manually create `BepInEx/config/mebiustos.harmonystartupoptimizer.cfg` inside the game directory with the following contents:
@@ -72,6 +74,17 @@ Enabled = false
 ```
 
 The overlay is enabled when the file is absent or `Enabled = true`.
+
+### Cache lifetime
+
+To stop caching after startup, add the following to the same settings file:
+
+```ini
+[Cache]
+StopAfterStartup = true
+```
+
+This option also works with the overlay disabled. If omitted or set to `false`, caching continues until the game closes.
 
 ## Logging
 
@@ -122,7 +135,9 @@ To build, test, and install it locally, close the game and run:
 - `LookupHooks.cs`: Connecting to the shared type lookup API while preserving execution order, arguments, results, and exceptions with other patches.
 - `Plugin.cs`: Anchor Chain integration, activation checks, minimal logging, and lifecycle management.
 - `StartupOverlay.cs`: Startup status display, resolution scaling, and cleanup of the display component.
-- `StartupScreen.cs`: Reading the game's menu and loading screen state to determine when to end the display.
+- `StartupMonitor.cs` / `StartupLifetime.cs`: Shared startup completion monitoring, display cleanup, and optional cache shutdown.
+- `StartupSettings.cs`: Reading optional overlay and cache lifetime settings.
+- `StartupScreen.cs`: Reading the game's menu and loading screen state.
 - `ModActivation.cs`: Reading Sea Power's mod activation state.
 - `PatchRegistry.cs`: Installing, rolling back, and removing only this mod's Harmony patches.
 

@@ -33,9 +33,10 @@ public sealed class Plugin : IAnchorChainMod
             host = new GameObject("HarmonyStartupOptimizer");
             UnityEngine.Object.DontDestroyOnLoad(host);
             host.hideFlags = HideFlags.HideAndDontSave;
-            host.AddComponent<OptimizerHost>().Initialize(hooks);
+            var optimizer = host.AddComponent<OptimizerHost>();
+            optimizer.Initialize(hooks);
             Log.LogInfo("Active: shared TypeByName cache (Harmony " + LookupHooks.Target.DeclaringType!.Assembly.GetName().Version + ").");
-            StartupOverlay.Attach(host, game, hooks.Cache);
+            StartupMonitor.Attach(host, game, hooks.Cache, optimizer.StopAfterStartup);
         }
         catch (Exception error)
         {
@@ -56,11 +57,18 @@ internal sealed class OptimizerHost : MonoBehaviour
 
     private void OnApplicationQuit() => Close();
     private void OnDestroy() => Close();
-    private void Close()
+    internal void StopAfterStartup() => Close(logCompletion: true);
+
+    private void Close(bool logCompletion = false)
     {
         if (closed || hooks == null) return;
         closed = true;
-        try { hooks.Uninstall(); }
+        try
+        {
+            hooks.Uninstall();
+            hooks = null;
+            if (logCompletion) Plugin.Log.LogInfo("Startup-only cache stopped.");
+        }
         catch (Exception error) { Plugin.Log.LogError("Shared type-cache shutdown failed: " + error); }
     }
 }

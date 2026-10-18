@@ -38,7 +38,7 @@ internal static class Program
         try
         {
             Console.WriteLine("Runtime: " + typeof(object).Assembly.Location);
-            OptionalOverlaySettings();
+            OptionalStartupSettings();
             Assembly game = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "Seapower-Scripts.dll"));
             _ = new StartupScreen(game);
             Console.WriteLine("PASS startup display: menu and loading-screen API bindings in the current game");
@@ -53,6 +53,7 @@ internal static class Program
             NewAssemblyAndMissingType();
             ReentrantAndConcurrent();
             ResolverPatchChanges();
+            StartupOnlyShutdown();
             if (args.Length != 0)
             {
                 Assembly diagnostic = Assembly.LoadFrom(args[0]);
@@ -68,37 +69,113 @@ internal static class Program
         finally { Reset(); observer.Unpatch(LookupHooks.Target, HarmonyPatchType.All, observer.Id); }
     }
 
-    private static void OptionalOverlaySettings()
+    private static void OptionalStartupSettings()
     {
         string root = Path.Combine(Path.GetTempPath(), "HarmonyStartupOptimizer-settings-" + Guid.NewGuid().ToString("N"));
         string directory = Path.Combine(root, "optional");
-        string path = Path.Combine(directory, "overlay.cfg");
+        string path = Path.Combine(directory, "startup.cfg");
         try
         {
             // The game normally initializes these paths before any mod reads settings.
             Type paths = Assembly.Load("BepInEx").GetType("BepInEx.Paths", true)!;
             Method(paths, "SetExecutablePath").Invoke(null, new object?[]
                 { Path.Combine(root, "Sea Power.exe"), Path.Combine(root, "BepInEx"), Path.GetDirectoryName(typeof(object).Assembly.Location), null });
-            Assert(OverlaySettings.ReadEnabled(path) && !Directory.Exists(directory), "Missing settings must enable the overlay without creating files or directories.");
+            StartupSettings defaults = StartupSettings.Read(path);
+            Assert(defaults.OverlayEnabled && !defaults.StopAfterStartup && !Directory.Exists(directory),
+                "Missing settings must preserve the overlay and continuous caching without creating files or directories.");
             Directory.CreateDirectory(directory);
-            foreach (bool enabled in new[] { true, false })
+            foreach (var example in new[]
             {
-                string contents = "# User settings\n[Overlay]\nEnabled = " + enabled.ToString().ToLowerInvariant() + "\n";
+                (Text: "[Overlay]\nEnabled = true\n", Overlay: true, Stop: false),
+                (Text: "[Overlay]\nEnabled = false\n", Overlay: false, Stop: false),
+                (Text: "[Cache]\nStopAfterStartup = true\n", Overlay: true, Stop: true),
+                (Text: "[Overlay]\nEnabled = false\n[Cache]\nStopAfterStartup = true\n", Overlay: false, Stop: true),
+                (Text: "[Overlay]\nEnabled = false\n[Cache]\nStopAfterStartup = false\n", Overlay: false, Stop: false)
+            })
+            {
+                string contents = "# User settings\n" + example.Text;
                 File.WriteAllText(path, contents);
                 File.SetAttributes(path, FileAttributes.ReadOnly);
                 try
                 {
-                    Assert(OverlaySettings.ReadEnabled(path) == enabled, "The user's overlay setting was ignored.");
+                    StartupSettings settings = StartupSettings.Read(path);
+                    Assert(settings.OverlayEnabled == example.Overlay && settings.StopAfterStartup == example.Stop,
+                        "The user's startup settings or defaults for omitted options were ignored.");
                     Assert(File.ReadAllText(path) == contents, "Reading settings changed the user's file.");
                 }
                 finally { File.SetAttributes(path, FileAttributes.Normal); }
             }
-            File.WriteAllText(path, "[Overlay]\nEnabled = invalid\n");
-            try { OverlaySettings.ReadEnabled(path); throw new Exception("An invalid overlay setting silently used a default."); }
-            catch (FormatException) { }
-            Console.WriteLine("PASS optional overlay settings: absent default, true/false, read-only file unchanged, invalid value rejected");
+            foreach (string contents in new[] { "[Overlay]\nEnabled = invalid\n", "[Cache]\nStopAfterStartup = invalid\n" })
+            {
+                File.WriteAllText(path, contents);
+                try { StartupSettings.Read(path); throw new Exception("An invalid startup setting silently used a default."); }
+                catch (FormatException) { }
+            }
+            Console.WriteLine("PASS optional startup settings: absent and omitted defaults, independent options, read-only file unchanged, invalid values rejected");
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
+    }
+
+    private static void StartupOnlyShutdown()
+    {
+        foreach (bool display in new[] { true, false })
+        foreach (bool stopAfterStartup in new[] { true, false })
+        {
+            LookupHooks hooks = Hooks();
+            try
+            {
+                AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
+                bool menu = false;
+                int detections = 0, shutdowns = 0;
+                var lifetime = new StartupLifetime(() => { detections++; return menu; }, display,
+                    stopAfterStartup ? (Action)(() => { shutdowns++; hooks.Uninstall(); }) : null);
+                lifetime.Tick(0);
+                lifetime.Tick(100);
+                Assert(!lifetime.MenuDetected && shutdowns == 0 && hooks.Cache.Begin("System.String") != null,
+                    "Startup-only caching stopped while the startup screen was still visible.");
+                menu = true;
+                lifetime.Tick(101);
+                Assert(lifetime.MenuDetected, "The main menu did not complete startup detection.");
+                if (display)
+                {
+                    lifetime.Tick(110);
+                    Assert(!lifetime.Finished, "Display time elapsed before the hit count could be rendered.");
+                    lifetime.DisplayRendered(110);
+                }
+                float end = display ? 115 : 106;
+                menu = false;
+                int detected = detections;
+                lifetime.Tick(end - 0.1f);
+                Assert(lifetime.MenuDetected && !lifetime.Finished && detections == detected,
+                    "Starting another load reset the startup display or completion timer.");
+                lifetime.Tick(end);
+                lifetime.Tick(end + 10);
+                Assert(lifetime.Finished && shutdowns == (stopAfterStartup ? 1 : 0),
+                    "Startup shutdown ignored the option, required a display, or ran more than once.");
+                var owners = Harmony.GetPatchInfo(LookupHooks.Target)!.Owners;
+                Assert(owners.Contains(Owner) != stopAfterStartup && owners.Contains("mebiustos.harmonystartupoptimizer.smoke.other"),
+                    "Startup shutdown left own patches installed or removed another mod's patches.");
+                int beforeOriginal = originalBodies;
+                AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
+                Assert(originalBodies - beforeOriginal == (stopAfterStartup ? 2 : 0),
+                    "Startup shutdown did not restore uncached lookups, or continuous caching stopped.");
+                Assert((hooks.Cache.Begin("System.String") == null) == stopAfterStartup,
+                    "Startup shutdown retained an active cache.");
+            }
+            finally { hooks.Uninstall(); }
+        }
+        bool visible = false;
+        int completed = 0;
+        var failedDisplay = new StartupLifetime(() => visible, true, () => completed++);
+        failedDisplay.Tick(0);
+        failedDisplay.DisplayUnavailable(1);
+        failedDisplay.Tick(100);
+        Assert(!failedDisplay.Finished, "A failed display was treated as startup completion.");
+        visible = true;
+        failedDisplay.Tick(101);
+        failedDisplay.Tick(106);
+        Assert(completed == 1, "A failed display prevented startup completion.");
+        Console.WriteLine("PASS startup lifetime: continuous or startup-only caching, with or without display, reload stability and display failure");
     }
 
     private static bool OtherPrefix(ref string? __0, ref Type? __result)
