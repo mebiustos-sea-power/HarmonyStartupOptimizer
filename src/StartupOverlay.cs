@@ -14,7 +14,7 @@ internal sealed class StartupOverlay : MonoBehaviour
     private Font? font;
     private readonly GUIContent content = new GUIContent();
     private float nextSample, hideAt = -1;
-    private bool menuVisible, stopped;
+    private bool menuDetected, stopped;
 
     internal static void Attach(GameObject host, Assembly game, TypeLookupCache cache)
     {
@@ -44,8 +44,8 @@ internal sealed class StartupOverlay : MonoBehaviour
         nextSample = now + 0.25f;
         try
         {
-            menuVisible = screen!.MenuVisible();
-            content.text = ModInfo.Name + (menuVisible
+            if (!menuDetected) menuDetected = screen!.MenuVisible();
+            content.text = ModInfo.Name + (menuDetected
                 ? " | Cache hits: " + cache.Hits.ToString("N0", CultureInfo.InvariantCulture)
                 : " | Active");
         }
@@ -83,9 +83,9 @@ internal sealed class StartupOverlay : MonoBehaviour
             GUI.Label(new Rect(rect.x + 1, rect.y + 1, rect.width, rect.height), content, label);
             label.normal.textColor = Color.white;
             GUI.Label(rect, content, label);
-            // Start after a rendered menu frame, rather than counting time spent
+            // Start after rendering the hit count, rather than counting time spent
             // blocked in a startup operation before the screen can refresh.
-            if (menuVisible && hideAt < 0) hideAt = Time.realtimeSinceStartup + 5;
+            if (menuDetected && hideAt < 0) hideAt = Time.realtimeSinceStartup + 5;
         }
         catch (Exception error) { Fail(error); }
         finally { GUI.matrix = previousMatrix; GUI.depth = previousDepth; }

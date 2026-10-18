@@ -5,7 +5,7 @@ A standalone mod for Sea Power that caches shared Harmony type lookup results, s
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.1.2`
+- Version: `0.1.3`
 - Requires: Anchor Chain
 - No runtime dependency on BDCM or Startup Diagnostics.
 
