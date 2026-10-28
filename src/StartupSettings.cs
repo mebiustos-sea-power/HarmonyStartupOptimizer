@@ -7,9 +7,14 @@ namespace HarmonyStartupOptimizer;
 internal sealed class StartupSettings
 {
     internal readonly bool OverlayEnabled, StopAfterStartup;
+    internal readonly bool TypeLookup, FileListing, EncyclopediaLookup;
 
-    private StartupSettings(bool overlayEnabled, bool stopAfterStartup)
-    { OverlayEnabled = overlayEnabled; StopAfterStartup = stopAfterStartup; }
+    private StartupSettings(bool overlayEnabled = true, bool stopAfterStartup = false,
+        bool typeLookup = true, bool fileListing = true, bool encyclopediaLookup = true)
+    {
+        OverlayEnabled = overlayEnabled; StopAfterStartup = stopAfterStartup;
+        TypeLookup = typeLookup; FileListing = fileListing; EncyclopediaLookup = encyclopediaLookup;
+    }
 
     internal static StartupSettings Read(string path)
     {
@@ -18,12 +23,15 @@ internal sealed class StartupSettings
             if ((File.GetAttributes(path) & FileAttributes.Directory) != 0)
                 throw new IOException("The startup settings path is a directory: " + path);
         }
-        catch (FileNotFoundException) { return new StartupSettings(true, false); }
-        catch (DirectoryNotFoundException) { return new StartupSettings(true, false); }
+        catch (FileNotFoundException) { return new StartupSettings(); }
+        catch (DirectoryNotFoundException) { return new StartupSettings(); }
 
         var settings = new ConfigFile(path, false) { SaveOnConfigSet = false };
         return new StartupSettings(ReadBoolean(settings, path, "Overlay", "Enabled", true),
-            ReadBoolean(settings, path, "Cache", "StopAfterStartup", false));
+            ReadBoolean(settings, path, "Cache", "StopAfterStartup", false),
+            ReadBoolean(settings, path, "Optimizations", "TypeLookup", true),
+            ReadBoolean(settings, path, "Optimizations", "FileListing", true),
+            ReadBoolean(settings, path, "Optimizations", "EncyclopediaLookup", true));
     }
 
     private static bool ReadBoolean(ConfigFile settings, string path, string section, string key, bool defaultValue)

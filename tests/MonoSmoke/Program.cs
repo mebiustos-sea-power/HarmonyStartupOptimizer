@@ -21,6 +21,8 @@ internal static class Program
     private static int prefixes, postfixes, originalBodies;
     private static bool alias, transform, skip, throwPrefix, recurse;
     private static int postfixFailures;
+    private static int enumerationPostfixes;
+    private static bool changeEnumeration;
 
     private static void Assert(bool condition, string message) { if (!condition) throw new Exception(message); }
     private static MethodInfo Method(Type type, string name) => type.GetMethod(name, Static)!;
@@ -38,14 +40,21 @@ internal static class Program
         try
         {
             Console.WriteLine("Runtime: " + typeof(object).Assembly.Location);
+            var startupTiming = StartupTiming.ForCurrentProcess();
+            startupTiming.Complete();
+            Assert(startupTiming.Seconds >= 0 && !double.IsInfinity(startupTiming.Seconds.Value),
+                "The game runtime could not measure elapsed time from process creation.");
+            Console.WriteLine("PASS process-start timing: native process creation time and monotonic elapsed clock");
             OptionalStartupSettings();
             Assembly game = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "Seapower-Scripts.dll"));
             _ = new StartupScreen(game);
             Console.WriteLine("PASS startup display: menu and loading-screen API bindings in the current game");
+            DataOptimizationChecks.Run(game);
             observer.Patch(LookupHooks.Target,
                 prefix: new HarmonyMethod(typeof(Program), nameof(OtherPrefix)),
                 postfix: new HarmonyMethod(typeof(Program), nameof(OtherPostfix)),
                 transpiler: new HarmonyMethod(typeof(Program), nameof(ObserveOriginalBody)), finalizer: null, ilmanipulator: null);
+            SharedEnumerations();
             SharedResultsAndPatches();
             PrefixSkipsAndExceptions();
             PostfixFailure();
@@ -53,7 +62,7 @@ internal static class Program
             NewAssemblyAndMissingType();
             ReentrantAndConcurrent();
             ResolverPatchChanges();
-            StartupOnlyShutdown();
+            StartupOnlyShutdown(game);
             if (args.Length != 0)
             {
                 Assembly diagnostic = Assembly.LoadFrom(args[0]);
@@ -81,7 +90,7 @@ internal static class Program
             Method(paths, "SetExecutablePath").Invoke(null, new object?[]
                 { Path.Combine(root, "Sea Power.exe"), Path.Combine(root, "BepInEx"), Path.GetDirectoryName(typeof(object).Assembly.Location), null });
             StartupSettings defaults = StartupSettings.Read(path);
-            Assert(defaults.OverlayEnabled && !defaults.StopAfterStartup && !Directory.Exists(directory),
+            Assert(defaults.OverlayEnabled && !defaults.StopAfterStartup && defaults.TypeLookup && defaults.FileListing && defaults.EncyclopediaLookup && !Directory.Exists(directory),
                 "Missing settings must preserve the overlay and continuous caching without creating files or directories.");
             Directory.CreateDirectory(directory);
             foreach (var example in new[]
@@ -105,7 +114,14 @@ internal static class Program
                 }
                 finally { File.SetAttributes(path, FileAttributes.Normal); }
             }
-            foreach (string contents in new[] { "[Overlay]\nEnabled = invalid\n", "[Cache]\nStopAfterStartup = invalid\n" })
+            foreach (string key in new[] { "TypeLookup", "FileListing", "EncyclopediaLookup" })
+            {
+                File.WriteAllText(path, "[Optimizations]\n" + key + " = false\n");
+                StartupSettings settings = StartupSettings.Read(path);
+                Assert(settings.TypeLookup == (key != "TypeLookup") && settings.FileListing == (key != "FileListing") &&
+                    settings.EncyclopediaLookup == (key != "EncyclopediaLookup"), "A per-module option affected a different module or ignored omitted defaults.");
+            }
+            foreach (string contents in new[] { "[Overlay]\nEnabled = invalid\n", "[Cache]\nStopAfterStartup = invalid\n", "[Optimizations]\nFileListing = invalid\n" })
             {
                 File.WriteAllText(path, contents);
                 try { StartupSettings.Read(path); throw new Exception("An invalid startup setting silently used a default."); }
@@ -116,19 +132,24 @@ internal static class Program
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }
 
-    private static void StartupOnlyShutdown()
+    private static void StartupOnlyShutdown(Assembly game)
     {
         foreach (bool display in new[] { true, false })
         foreach (bool stopAfterStartup in new[] { true, false })
         {
-            LookupHooks hooks = Hooks();
+            Reset();
+            var hooks = new LookupHooks(Owner, new TypeLookupCache());
+            var modules = new OptimizationSet((_, error) => throw error);
             try
             {
+                modules.Install(hooks, true);
+                modules.Install(new FileListingHooks(Owner + ".files", game), true);
+                modules.Install(new EncyclopediaLookupHooks(Owner + ".encyclopedia", game), true);
                 AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
                 bool menu = false;
                 int detections = 0, shutdowns = 0;
                 var lifetime = new StartupLifetime(() => { detections++; return menu; }, display,
-                    stopAfterStartup ? (Action)(() => { shutdowns++; hooks.Uninstall(); }) : null);
+                    stopAfterStartup ? (Action)(() => { shutdowns++; modules.Stop(); }) : null);
                 lifetime.Tick(0);
                 lifetime.Tick(100);
                 Assert(!lifetime.MenuDetected && shutdowns == 0 && hooks.Cache.Begin("System.String") != null,
@@ -161,8 +182,11 @@ internal static class Program
                     "Startup shutdown did not restore uncached lookups, or continuous caching stopped.");
                 Assert((hooks.Cache.Begin("System.String") == null) == stopAfterStartup,
                     "Startup shutdown retained an active cache.");
+                foreach (string owner in new[] { Owner, Owner + ".files", Owner + ".encyclopedia" })
+                    Assert(Harmony.GetAllPatchedMethods().Any(m => Harmony.GetPatchInfo(m)!.Owners.Contains(owner)) != stopAfterStartup,
+                        "Common startup shutdown left a module installed, or stopped continuous optimization: " + owner);
             }
-            finally { hooks.Uninstall(); }
+            finally { modules.Stop(); }
         }
         bool visible = false;
         int completed = 0;
@@ -301,6 +325,11 @@ internal static class Program
             AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
             var assembly = AssemblyBuilder.DefineDynamicAssembly(new AssemblyName("HarmonyStartupOptimizerSmokeFixture"), AssemblyBuilderAccess.Run);
             Type emitted = assembly.DefineDynamicModule("fixture").DefineType(name, TypeAttributes.Public).CreateTypeInfo()!.AsType();
+            Assert(AccessTools.GetTypesFromAssembly(assembly).Contains(emitted), "Emitted type missing from enumeration.");
+            Type later = emitted.Module is ModuleBuilder module
+                ? module.DefineType(name + "Later", TypeAttributes.Public).CreateTypeInfo()!.AsType()
+                : throw new InvalidOperationException("Dynamic module unavailable.");
+            Assert(AccessTools.GetTypesFromAssembly(assembly).Contains(later), "A growing dynamic assembly retained an old type list.");
             beforeOriginal = originalBodies;
             AccessTools.TypeByName("System.String");
             Assert(originalBodies == beforeOriginal + 1, "An entry from before assembly load was reused.");
@@ -310,6 +339,39 @@ internal static class Program
             Console.WriteLine("PASS actual assembly event: old entries invalidated, missing query retried, emitted Type visible");
         }
         finally { hooks.Uninstall(); }
+    }
+
+    private static void SharedEnumerations()
+    {
+        var other = new Harmony("mebiustos.harmonystartupoptimizer.smoke.types");
+        other.Patch(LookupHooks.TypesTarget, postfix: new HarmonyMethod(typeof(Program), nameof(EnumerationPostfix)));
+        LookupHooks hooks = Hooks();
+        try
+        {
+            Assert(AccessTools.TypeByName(nameof(TypeLookupCache)) == typeof(TypeLookupCache), "Short-name fallback changed.");
+            Assembly assembly = typeof(Program).Assembly;
+            Type[] expected = assembly.GetTypes();
+            enumerationPostfixes = 0;
+            changeEnumeration = true;
+            Type[] first = AccessTools.GetTypesFromAssembly(assembly);
+            Assert(first[0] == typeof(Guid), "Another enumeration postfix was skipped.");
+            changeEnumeration = false;
+            first[1] = typeof(Guid);
+            Assert(AccessTools.GetTypesFromAssembly(assembly).SequenceEqual(expected), "A caller or postfix mutated the shared type list.");
+            Assert(enumerationPostfixes == 2, "Enumeration cache bypassed another owner's postfix.");
+            hooks.Uninstall();
+            var owners = Harmony.GetPatchInfo(LookupHooks.TypesTarget)!.Owners;
+            Assert(!owners.Contains(Owner) && owners.Contains(other.Id), "Enumeration cleanup changed another owner's patches.");
+            Assert(AccessTools.GetTypesFromAssembly(assembly).SequenceEqual(expected), "Cleanup did not restore ordinary enumeration.");
+            Console.WriteLine("PASS shared enumerations: result arrays, every-call postfix and owner-specific cleanup");
+        }
+        finally { changeEnumeration = false; hooks.Uninstall(); other.Unpatch(LookupHooks.TypesTarget, HarmonyPatchType.All, other.Id); }
+    }
+
+    private static void EnumerationPostfix(Type[] __result)
+    {
+        enumerationPostfixes++;
+        if (changeEnumeration && __result.Length != 0) __result[0] = typeof(Guid);
     }
 
     private static void ReentrantAndConcurrent()
@@ -373,11 +435,15 @@ internal static class Program
     private static void Diagnostics(Assembly diagnostic, bool diagnosticsFirst)
     {
         var recorder = new DiagnosticHarness(diagnostic);
+        var dataModules = new OptimizationSet((_, error) => throw error);
         LookupHooks? hooks = null;
         try
         {
             if (diagnosticsFirst) recorder.Install();
             hooks = Hooks();
+            Assembly game = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Seapower-Scripts");
+            dataModules.Install(new FileListingHooks(Owner + ".files", game), true);
+            dataModules.Install(new EncyclopediaLookupHooks(Owner + ".encyclopedia", game), true);
             if (!diagnosticsFirst) recorder.Install();
             hooks.Cache.Invalidate();
             int beforeOriginal = originalBodies;
@@ -390,12 +456,13 @@ internal static class Program
             finally { recorder.Leave(); }
             Assert(originalBodies == beforeOriginal + 1 && recorder.Completed() == 2, "Diagnostics did not observe both miss and hit.");
             hooks.Uninstall();
+            dataModules.Stop();
             Assert(Harmony.GetPatchInfo(LookupHooks.Target)!.Owners.Contains("mebiustos.startupdiagnostics"), "Optimizer cleanup removed diagnostics.");
             recorder.Enter(); try { AccessTools.TypeByName("System.String"); } finally { recorder.Leave(); }
             Assert(recorder.Completed() == 3, "Diagnostics stopped after cache removal.");
             Console.WriteLine("PASS installed Startup Diagnostics: " + (diagnosticsFirst ? "diagnostics first" : "optimizer first") + "; all calls measured, diagnostics survives removal");
         }
-        finally { hooks?.Uninstall(); recorder.Uninstall(); }
+        finally { hooks?.Uninstall(); dataModules.Stop(); recorder.Uninstall(); }
     }
 
     private sealed class DiagnosticHarness
@@ -413,7 +480,15 @@ internal static class Program
             registry = Activator.CreateInstance(registryType, Instance, null, new object[] { new Harmony("mebiustos.startupdiagnostics") }, CultureInfo.InvariantCulture)!;
             Method(hooks, "Configure").Invoke(null, new object[] { session, (Action<string, Action>)Guard });
         }
-        internal void Install() => Method(hooks, "InstallLookup").Invoke(null, new[] { registry });
+        internal void Install()
+        {
+            Method(hooks, "InstallLookup").Invoke(null, new[] { registry });
+            Type? work = hooks.Assembly.GetType("StartupDiagnostics.LoadingWorkHooks");
+            if (work == null) return;
+            Method(work, "Configure").Invoke(null, new object[] { session, (Action<string, Action>)Guard });
+            Assembly game = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Seapower-Scripts");
+            Method(work, "Install").Invoke(null, new[] { registry, game });
+        }
         internal void Enter() => Method(hooks, "EnterDcm").Invoke(null, null);
         internal void Leave() => Method(hooks, "LeaveDcm").Invoke(null, new object?[] { null });
         internal void Uninstall() => registry.GetType().GetMethod("RemoveAll", Instance)!.Invoke(registry, null);

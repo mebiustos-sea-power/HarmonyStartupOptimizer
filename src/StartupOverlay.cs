@@ -8,12 +8,13 @@ internal sealed class StartupOverlay : MonoBehaviour
 {
     private TypeLookupCache? cache;
     private StartupLifetime? lifetime;
+    private StartupTiming? timing;
     private GUIStyle? label;
     private Font? font;
     private readonly GUIContent content = new GUIContent();
     private bool startupOnly, stopped;
 
-    internal static StartupOverlay? Attach(GameObject host, TypeLookupCache cache, StartupLifetime lifetime, bool startupOnly)
+    internal static StartupOverlay? Attach(GameObject host, TypeLookupCache? cache, StartupLifetime lifetime, bool startupOnly)
     {
         StartupOverlay? overlay = null;
         try
@@ -22,6 +23,7 @@ internal sealed class StartupOverlay : MonoBehaviour
             overlay.lifetime = lifetime;
             overlay.cache = cache;
             overlay.startupOnly = startupOnly;
+            overlay.timing = StartupTiming.ForCurrentProcess();
             overlay.Refresh();
             return overlay;
         }
@@ -35,15 +37,16 @@ internal sealed class StartupOverlay : MonoBehaviour
 
     internal void Refresh()
     {
-        if (stopped || cache == null || lifetime == null) return;
-        content.text = ModInfo.Name + (lifetime.MenuDetected
-            ? " | Cache hits: " + cache.Hits.ToString("N0", CultureInfo.InvariantCulture)
-            : startupOnly ? " | Active (startup only)" : " | Active");
+        if (stopped || lifetime == null) return;
+        content.text = timing?.Seconds is double seconds
+            ? "Startup: " + seconds.ToString("F1", CultureInfo.InvariantCulture) + "s" +
+                (cache == null ? "" : " | Cache hits: " + cache.Hits.ToString("N0", CultureInfo.InvariantCulture))
+            : "Startup Optimizer v" + ModInfo.Version + (startupOnly ? " | Active (startup only)" : " | Active");
     }
 
     private void OnGUI()
     {
-        if (stopped || cache == null || Event.current.type != EventType.Repaint) return;
+        if (stopped || Event.current.type != EventType.Repaint) return;
         Matrix4x4 previousMatrix = GUI.matrix;
         int previousDepth = GUI.depth;
         try
@@ -54,6 +57,8 @@ internal sealed class StartupOverlay : MonoBehaviour
                 if (font == null) throw new InvalidOperationException("A startup status font could not be created.");
                 label = new GUIStyle(GUI.skin.label) { font = font, alignment = TextAnchor.MiddleCenter, wordWrap = false };
             }
+            // Freeze the process-to-menu duration on the first menu repaint.
+            if (lifetime!.MenuDetected && timing!.Complete()) Refresh();
             float scale = Mathf.Clamp(Screen.height / 1080f, 0.75f, 2f);
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1));
             GUI.depth = -10000;
@@ -72,7 +77,7 @@ internal sealed class StartupOverlay : MonoBehaviour
             GUI.Label(new Rect(rect.x + 1, rect.y + 1, rect.width, rect.height), content, label);
             label.normal.textColor = Color.white;
             GUI.Label(rect, content, label);
-            // Start after rendering the hit count, rather than counting time spent
+            // Start after rendering the menu status, rather than counting time spent
             // blocked in a startup operation before the screen can refresh.
             lifetime!.DisplayRendered(Time.realtimeSinceStartup);
         }

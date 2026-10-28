@@ -18,7 +18,7 @@ public sealed class Plugin : IAnchorChainMod
     {
         if (initialized) return;
         initialized = true;
-        LookupHooks? hooks = null;
+        OptimizationSet? modules = null;
         GameObject? host = null;
         try
         {
@@ -28,21 +28,27 @@ public sealed class Plugin : IAnchorChainMod
             if (!ModActivation.IsEnabled(game.GetType("SeaPower.FileManager", true)!, package))
             { Log.LogInfo("Disabled in the mod manager."); return; }
 
-            hooks = new LookupHooks(ModId, new TypeLookupCache());
-            hooks.Install();
+            StartupSettings settings = StartupSettings.Read(Path.Combine(BepInEx.Paths.ConfigPath, ModId + ".cfg"));
+            modules = new OptimizationSet((name, error) => Log.LogError(name + " initialization failed: " + error));
+            TypeLookupCache? cache = settings.TypeLookup ? new TypeLookupCache() : null;
+            if (cache != null && !modules.Install(new LookupHooks(ModId, cache), true)) cache = null;
+            if (settings.FileListing) modules.Install(new FileListingHooks(ModId + ".files", game), true);
+            if (settings.EncyclopediaLookup) modules.Install(new EncyclopediaLookupHooks(ModId + ".encyclopedia", game), true);
+            if (modules.ActiveNames.Length == 0)
+            { modules.Stop(); Log.LogInfo("No optimizations are active."); return; }
             host = new GameObject("HarmonyStartupOptimizer");
             UnityEngine.Object.DontDestroyOnLoad(host);
             host.hideFlags = HideFlags.HideAndDontSave;
             var optimizer = host.AddComponent<OptimizerHost>();
-            optimizer.Initialize(hooks);
-            Log.LogInfo("Active: shared TypeByName cache (Harmony " + LookupHooks.Target.DeclaringType!.Assembly.GetName().Version + ").");
-            StartupMonitor.Attach(host, game, hooks.Cache, optimizer.StopAfterStartup);
+            optimizer.Initialize(modules);
+            Log.LogInfo("Active: " + string.Join(", ", modules.ActiveNames) + " (Harmony " + LookupHooks.Target.DeclaringType!.Assembly.GetName().Version + ").");
+            StartupMonitor.Attach(host, game, cache, settings, optimizer.StopAfterStartup);
         }
         catch (Exception error)
         {
             Log.LogError("Shared startup optimization initialization failed: " + error);
-            if (hooks != null)
-                try { hooks.Uninstall(); } catch (Exception cleanup) { Log.LogError("Shared cache rollback failed: " + cleanup); }
+            if (modules != null)
+                try { modules.Stop(); } catch (Exception cleanup) { Log.LogError("Startup optimization rollback failed: " + cleanup); }
             if (host != null) UnityEngine.Object.Destroy(host);
         }
     }
@@ -50,10 +56,10 @@ public sealed class Plugin : IAnchorChainMod
 
 internal sealed class OptimizerHost : MonoBehaviour
 {
-    private LookupHooks? hooks;
+    private OptimizationSet? modules;
     private bool closed;
 
-    internal void Initialize(LookupHooks adapter) { hooks = adapter; }
+    internal void Initialize(OptimizationSet adapters) { modules = adapters; }
 
     private void OnApplicationQuit() => Close();
     private void OnDestroy() => Close();
@@ -61,14 +67,14 @@ internal sealed class OptimizerHost : MonoBehaviour
 
     private void Close(bool logCompletion = false)
     {
-        if (closed || hooks == null) return;
-        closed = true;
+        if (closed || modules == null) return;
         try
         {
-            hooks.Uninstall();
-            hooks = null;
-            if (logCompletion) Plugin.Log.LogInfo("Startup-only cache stopped.");
+            modules.Stop();
+            modules = null;
+            closed = true;
+            if (logCompletion) Plugin.Log.LogInfo("Startup-only optimizations stopped.");
         }
-        catch (Exception error) { Plugin.Log.LogError("Shared type-cache shutdown failed: " + error); }
+        catch (Exception error) { Plugin.Log.LogError("Startup optimization shutdown failed: " + error); }
     }
 }

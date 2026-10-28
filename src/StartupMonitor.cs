@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using System.Reflection;
 using UnityEngine;
 
@@ -10,13 +9,11 @@ internal sealed class StartupMonitor : MonoBehaviour
     private StartupLifetime? lifetime;
     private StartupOverlay? overlay;
 
-    internal static void Attach(GameObject host, Assembly game, TypeLookupCache cache, Action shutdown)
+    internal static void Attach(GameObject host, Assembly game, TypeLookupCache? cache, StartupSettings settings, Action shutdown)
     {
         StartupMonitor? monitor = null;
         try
         {
-            string path = Path.Combine(BepInEx.Paths.ConfigPath, ModInfo.Id + ".cfg");
-            StartupSettings settings = StartupSettings.Read(path);
             if (!settings.OverlayEnabled && !settings.StopAfterStartup) return;
             var screen = new StartupScreen(game);
             var lifetime = new StartupLifetime(screen.MenuVisible, settings.OverlayEnabled,

@@ -1,10 +1,15 @@
-param([Parameter(Mandatory=$true)][string]$GameDirectory, [Parameter(Mandatory=$true)][string]$AnchorChainDirectory)
+param([Parameter(Mandatory=$true)][string]$GameDirectory, [Parameter(Mandatory=$true)][string]$AnchorChainDirectory,
+    [string]$LookupBenchmarkAssembly = '', [string]$LookupManifest = '')
 $ErrorActionPreference = 'Stop'
 $taskRoot = Split-Path $PSScriptRoot -Parent
 $taskManaged = Join-Path $GameDirectory 'Sea Power_Data\Managed'
 $taskCore = Join-Path $GameDirectory 'BepInEx\core'
 $taskRuntime = Join-Path $GameDirectory 'MonoBleedingEdge\EmbedRuntime\mono-2.0-bdwgc.dll'
 $taskTests = Join-Path $taskRoot 'tests\MonoSmoke\bin\Release\netstandard2.1\HarmonyStartupOptimizer.MonoSmoke.dll'
+if ($LookupBenchmarkAssembly) {
+    if (-not $LookupManifest) { throw 'LookupManifest is required for the lookup benchmark.' }
+    $taskTests = Join-Path $taskRoot 'tools\LookupBenchmark\bin\Release\netstandard2.1\HarmonyStartupOptimizer.LookupBenchmark.dll'
+}
 $taskPlugin = Join-Path $taskRoot 'src\bin\Release\netstandard2.1'
 $taskDiagnostics = Join-Path $GameDirectory 'Sea Power_Data\StreamingAssets\StartupDiagnostics\StartupDiagnostics.dll'
 foreach ($taskPath in @($taskRuntime,$taskTests)) { if (-not (Test-Path $taskPath)) { throw "Missing Mono test dependency: $taskPath" } }
@@ -27,7 +32,8 @@ $taskSearch = @($taskManaged,$taskCore,$taskPlugin,(Split-Path $taskTests -Paren
 [HarmonyStartupOptimizerNativeMono]::mono_set_dirs($taskManaged,(Join-Path $GameDirectory 'MonoBleedingEdge\etc'))
 [HarmonyStartupOptimizerNativeMono]::mono_set_assemblies_path($taskSearch)
 $taskArguments = @('HarmonyStartupOptimizerMono','--runtime=v4.0.30319',$taskTests)
-if (Test-Path $taskDiagnostics) { $taskArguments += $taskDiagnostics }
+if ($LookupBenchmarkAssembly) { $taskArguments += @($LookupBenchmarkAssembly, $LookupManifest) }
+elseif (Test-Path $taskDiagnostics) { $taskArguments += $taskDiagnostics }
 $taskStrings = @($taskArguments | ForEach-Object { [Runtime.InteropServices.Marshal]::StringToHGlobalAnsi($_) })
 $taskVector = [Runtime.InteropServices.Marshal]::AllocHGlobal([IntPtr]::Size * ($taskStrings.Count + 1))
 try {

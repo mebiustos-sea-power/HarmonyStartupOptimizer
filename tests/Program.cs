@@ -1,5 +1,7 @@
 using System;
 using System.Linq;
+using System.Collections.ObjectModel;
+using System.Reflection;
 using System.Threading;
 using HarmonyStartupOptimizer;
 
@@ -29,6 +31,98 @@ internal static class Program
     {
         try
         {
+            Test("startup duration is captured once and remains fixed during the result display", () =>
+            {
+                double elapsed = 24.8;
+                int reads = 0;
+                var timing = new StartupTiming(() => { reads++; return elapsed; });
+                Assert(timing.Seconds == null && reads == 0, "Startup duration was finalized before the menu was rendered.");
+                Assert(timing.Complete() && timing.Seconds == elapsed, "The first menu render did not capture elapsed startup time.");
+                elapsed = 300;
+                Assert(!timing.Complete() && timing.Seconds == 24.8 && reads == 1,
+                    "Result display time or another load changed the completed startup duration.");
+            });
+            Test("reference indices preserve first matches, missing results and appended data", () =>
+            {
+                var first = new Entry("a"); var second = new Entry("a");
+                var values = new ObservableCollection<Entry> { first, second, new Entry(null) };
+                using var index = new ReferenceIndex<Entry, (string?, int)>(values, values, e => (e.Key, 0));
+                Assert(ReferenceEquals(index.Find(("a", 0)), first), "A later duplicate replaced the first match.");
+                Assert(index.Find(("b", 0)) == null, "A missing reference unexpectedly resolved.");
+                var added = new Entry("b"); values.Add(added);
+                Assert(ReferenceEquals(index.Find(("b", 0)), added), "A previous missing result hid appended data.");
+                Assert(ReferenceEquals(index.Find((null, 0)), values[2]), "Null reference keys changed meaning.");
+            });
+            Test("reference indices follow reordering, replacement, removal, reset and key edits", () =>
+            {
+                var first = new Entry("a"); var second = new Entry("a");
+                var values = new ObservableCollection<Entry> { first, second };
+                using var index = new ReferenceIndex<Entry, string>(values, values, e => e.Key!);
+                Assert(ReferenceEquals(index.Find("a"), first), "Initial first-match order changed.");
+                values.Move(1, 0); Assert(ReferenceEquals(index.Find("a"), second), "Reordering did not invalidate the first match.");
+                var replaced = new Entry("a"); values[0] = replaced;
+                Assert(ReferenceEquals(index.Find("a"), replaced), "Same-count replacement retained the old object.");
+                replaced.Key = "b"; index.InvalidateItem(replaced);
+                Assert(ReferenceEquals(index.Find("a"), first) && ReferenceEquals(index.Find("b"), replaced), "A changed reference key was stale.");
+                values.Remove(first); Assert(index.Find("a") == null, "A removed item remained available.");
+                values.Clear(); values.Add(new Entry("c"));
+                Assert(index.Find("b") == null && ReferenceEquals(index.Find("c"), values[0]), "Reset retained prior-generation data.");
+            });
+            Test("repeated reference searches index each entry once and extend only appended data", () =>
+            {
+                var values = new ObservableCollection<Entry>(Enumerable.Range(0, 2000).Select(i => new Entry(i.ToString())));
+                int reads = 0;
+                using var index = new ReferenceIndex<Entry, string>(values, values, e => { reads++; return e.Key!; });
+                for (int i = 0; i < 5000; i++) Assert(ReferenceEquals(index.Find((i % values.Count).ToString()), values[i % values.Count]), "Indexed result changed.");
+                Assert(reads == values.Count, "Repeated queries rebuilt or rescanned the data.");
+                values.Add(new Entry("added"));
+                Assert(ReferenceEquals(index.Find("added"), values[values.Count - 1]) && reads == values.Count, "Appending rebuilt the previous index.");
+            });
+            Test("disabled or failed modules do not stop independent modules and common shutdown releases all", () =>
+            {
+                int errors = 0;
+                var modules = new OptimizationSet((_, error) => errors++);
+                var disabled = new ModuleFixture(); var failed = new ModuleFixture { FailInstall = true }; var active = new ModuleFixture();
+                Assert(!modules.Install(disabled, false) && !disabled.Active, "Disabled module was installed.");
+                Assert(!modules.Install(failed, true) && !failed.Active && errors == 1, "Failed installation was not rolled back and reported.");
+                Assert(modules.Install(active, true) && active.Active, "Another module's failure blocked installation.");
+                modules.Stop(); modules.Stop();
+                Assert(!active.Active && modules.ActiveNames.Length == 0, "Common shutdown retained an optimization.");
+            });
+            Test("custom type-name getters retain their observable behavior", () =>
+            {
+                var cache = new TypeNameCache(); var type = new NameFixture();
+                Assert(cache.FullName(type) == "1" && cache.FullName(type) == "2", "Custom FullName getters were cached.");
+                Assert(cache.Name(type) == "3" && cache.Name(type) == "4", "Custom Name getters were cached.");
+            });
+            Test("different type queries reuse enumeration without sharing mutable result arrays", () =>
+            {
+                var assembly = new EnumerationFixture(); var cache = new AssemblyTypeCache();
+                Type[] first = cache.GetTypes(assembly); first[0] = typeof(Guid);
+                Type[] second = cache.GetTypes(assembly); second[1] = typeof(bool);
+                Type[] third = cache.GetTypes(assembly);
+                Assert(assembly.Calls == 1 && third.SequenceEqual(new[] { typeof(string), typeof(int) }),
+                    "Enumeration was repeated or a caller changed the cached type list.");
+            });
+            Test("failed enumerations are retried and retain the original exception", () =>
+            {
+                var assembly = new EnumerationFixture(); var cache = new AssemblyTypeCache();
+                var expected = new ReflectionTypeLoadException(new Type[] { typeof(string) }, new Exception[] { new TypeLoadException("fixture") });
+                assembly.Error = expected;
+                try { cache.GetTypes(assembly); throw new Exception("Enumeration failure was swallowed."); }
+                catch (ReflectionTypeLoadException error) { Assert(ReferenceEquals(error, expected), "Enumeration exception changed."); }
+                assembly.Error = null;
+                Assert(cache.GetTypes(assembly).Length == 2 && assembly.Calls == 2, "A partial enumeration was cached.");
+            });
+            Test("enumeration spanning invalidation is retried and shutdown releases cached arrays", () =>
+            {
+                var assembly = new EnumerationFixture(); var cache = new AssemblyTypeCache();
+                assembly.OnRead = cache.Invalidate; cache.GetTypes(assembly); assembly.OnRead = null;
+                cache.GetTypes(assembly); cache.GetTypes(assembly);
+                Assert(assembly.Calls == 2, "An enumeration spanning invalidation was published.");
+                cache.Deactivate(); cache.GetTypes(assembly); cache.GetTypes(assembly);
+                Assert(assembly.Calls == 4, "Shutdown retained an active enumeration cache.");
+            });
             Test("repeat queries preserve Type identity and run the resolver once", () =>
             {
                 int originals = 0; var cache = Cache();
@@ -119,5 +213,41 @@ internal static class Program
             Console.WriteLine($"PASS: {passed} behavioral checks"); return 0;
         }
         catch (Exception error) { Console.WriteLine(error); return 1; }
+    }
+
+    private sealed class EnumerationFixture : Assembly
+    {
+        internal int Calls;
+        internal Exception? Error;
+        internal Action? OnRead;
+        public override bool IsDynamic => false;
+        public override Type[] GetTypes()
+        {
+            Calls++; OnRead?.Invoke();
+            if (Error != null) throw Error;
+            return new[] { typeof(string), typeof(int) };
+        }
+    }
+
+    private sealed class NameFixture : TypeDelegator
+    {
+        private int reads;
+        internal NameFixture() : base(typeof(string)) { }
+        public override string FullName => (++reads).ToString();
+        public override string Name => (++reads).ToString();
+    }
+
+    private sealed class Entry
+    {
+        internal string? Key;
+        internal Entry(string? key) { Key = key; }
+    }
+
+    private sealed class ModuleFixture : IOptimizerModule
+    {
+        internal bool FailInstall, Active;
+        public string Name => "fixture";
+        public void Install() { Active = true; if (FailInstall) throw new InvalidOperationException("fixture failure"); }
+        public void Uninstall() { Active = false; }
     }
 }

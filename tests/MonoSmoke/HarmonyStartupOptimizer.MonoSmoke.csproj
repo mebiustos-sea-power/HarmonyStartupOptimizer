@@ -8,5 +8,6 @@
   <ItemGroup>
     <ProjectReference Include="..\..\src\HarmonyStartupOptimizer.csproj" />
     <Reference Include="0Harmony" HintPath="$(SeaPowerDir)\BepInEx\core\0Harmony.dll" Private="false" ExternallyResolved="true" />
+    <Reference Include="Seapower-Scripts" HintPath="$(SeaPowerDir)\Sea Power_Data\Managed\Seapower-Scripts.dll" Private="false" ExternallyResolved="true" />
   </ItemGroup>
 </Project>

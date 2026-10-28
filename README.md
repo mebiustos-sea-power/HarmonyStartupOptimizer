@@ -1,20 +1,34 @@
 # Harmony Startup Optimizer
 
-A standalone mod for Sea Power that caches shared Harmony type lookup results, speeding up startup work in mods that repeatedly search for the same types.
+A standalone mod that helps reduce Sea Power's startup time through faster Harmony type searches, file-list processing, and encyclopedia generation.
 
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.1.4`
+- Version: `0.2.0`
 - Requires: Anchor Chain
-- No runtime dependency on BDCM or Startup Diagnostics.
+
+## What to expect
+
+The benefit depends on your mod setup. On my PC, Sea Power's measured startup time was about 104 seconds with this mod disabled and 26 seconds with it enabled.
+
+Mods that require Anchor Chain and include a DLL may benefit from faster Harmony type searches.
+Mods that add or replace game data may also benefit from faster file-list processing and encyclopedia generation, even if they do not use Harmony themselves.
+
+The optimizations target specific lookup and loading routines, rather than every part of the game's loading process.
+They remain active after startup by default and may also help when the same operations run later. They do not optimize rendering.
 
 ## Scope
 
-The optimizer targets `HarmonyLib.AccessTools.TypeByName(string)` in the shared Harmony assembly loaded by the game.
-It applies to all mods that call this function, without identifying callers by mod name or targeting BDCM's internal methods.
-It does not optimize custom lookups that bypass this function, field/property/method lookups,
-patch installation, or game logic itself.
+### Harmony type searches
+
+The optimizer targets `HarmonyLib.AccessTools.TypeByName(string)` and `GetTypesFromAssembly(Assembly)` in the shared Harmony assembly loaded by the game.
+It applies to all mods that call these functions, without identifying callers by mod name.
+It does not optimize custom type lookups that bypass these functions, field/property/method lookups,
+or patch installation.
+
+Complete assembly type lists and immutable runtime type names are also reused, reducing repeated work when searching for different type names.
+Harmony's search order is preserved, and each returned type array remains independent. Incomplete enumerations are retried; dynamic assemblies and custom type-name getters keep their original behavior.
 
 Successful type lookup results for identical name strings are shared within the current game process.
 The first lookup runs the original search, and its result is cached only if a type is found.
@@ -22,10 +36,17 @@ Cache keys distinguish case, namespaces, and assembly specifications.
 Missing results and exceptions are not cached, allowing types that become available later to be found on subsequent lookups.
 When a new assembly is detected, the entire cache is cleared, and results from lookups started before that event are not stored.
 The cache is also cleared when patches are added to or removed from the target function and Harmony rebuilds it.
-By default, the cache remains available after startup and is discarded when the game closes. Type lookup results are not saved to disk.
+Type lookup results are kept in memory and discarded when caching stops or the game closes.
 
-The first lookup for each type still takes time. Measure the improvement with your actual set of enabled mods.
-Time saved by the earlier BDCM-specific optimizer does not indicate an additional benefit from this general optimizer.
+The relevant caches are cleared when Harmony rebuilds the patched enumeration or comparison methods, and all are released when caching stops.
+The first lookup still requires work to populate the caches.
+
+### Game data processing
+
+- **FileListing** uses a set for duplicate checks in `FileManager.GetFiles(string,string)`, preserving file order, case sensitivity and mod priority. Each call still reads the current directories; file lists are not cached between calls.
+- **EncyclopediaLookup** indexes repeated reference searches while `LoadUnitsFromMetadata` builds the encyclopedia, preserving the first matching entry. Indices follow collection changes and are released when that operation finishes. This module currently supports the game assembly shipped with Sea Power `0.8.7-261021`; an unverified assembly disables this module with an error while the other modules remain available.
+
+All caches are kept in memory. No disk cache is created, and game files and other mods' files are not modified.
 
 ## Compatibility with other Harmony patches
 
@@ -50,59 +71,63 @@ The DLL should be located at `Sea Power_Data/StreamingAssets/HarmonyStartupOptim
 Enable Anchor Chain and Harmony Startup Optimizer in the mod manager, then restart Sea Power.
 Lookups performed before activation are not affected retroactively. Enabling or disabling the mod takes effect on the next game launch.
 
-Disable the old `BDCM Startup Optimizer` when comparing performance.
-If that optimizer skips lookups first, the effect of this optimizer alone and the overall call count cannot be measured accurately.
-This mod does not automatically change the old mod's settings or files.
-
-Startup Diagnostics is optional. Enable it to compare startup, BDCM initialization, and Check timings.
-With this optimizer, cache hits are still recorded as TypeByName calls by the diagnostic mod,
-so its lookup count includes cache hits, unlike with the BDCM-specific optimizer. Consider elapsed time together with this optimizer's cache hit count.
-
 ## Startup status display
 
-Displays the optimizer's status and cache hit count at the bottom center of the screen during Sea Power startup.
+Shows the mod version and status at the bottom center during loading, followed by startup time and the Harmony cache hit count at the main menu.
+Startup time is measured from game process creation until the overlay first observes the main menu being drawn. If the type lookup optimization is disabled, only startup time is shown at the main menu.
 
 ## Settings
 
-### Overlay settings
+To change the settings, create the following file inside your Sea Power game folder:
 
-To disable the overlay, manually create `BepInEx/config/mebiustos.harmonystartupoptimizer.cfg` inside the game directory with the following contents:
-
-```ini
-[Overlay]
-Enabled = false
+```text
+BepInEx/config/mebiustos.harmonystartupoptimizer.cfg
 ```
 
-The overlay is enabled when the file is absent or `Enabled = true`.
+If the configuration file is missing, the mod uses its default settings. Any settings omitted from the file also use their defaults.
 
-### Cache lifetime
+### Individual optimizations
 
-To stop caching after startup, add the following to the same settings file:
+Each optimization is enabled by default. Set an option to `false` to disable it:
+
+```ini
+[Optimizations]
+TypeLookup = true
+FileListing = true
+EncyclopediaLookup = true
+```
+
+`TypeLookup` controls the Harmony result, assembly-type and type-name caches together.
+
+### Startup-only mode
+
+To stop all optimizations after startup:
 
 ```ini
 [Cache]
 StopAfterStartup = true
 ```
 
-This option also works with the overlay disabled. If omitted or set to `false`, caching continues until the game closes.
+This option defaults to `false` and also works with the overlay disabled.
+
+### Startup overlay
+
+The overlay is enabled by default. To hide it:
+
+```ini
+[Overlay]
+Enabled = false
+```
 
 ## Logging
 
 Look for `Harmony Startup Optimizer` entries in `BepInEx/LogOutput.log`.
-When active, the mod writes one startup line: `Active: shared TypeByName cache (Harmony ...)`.
+When active, the mod writes one startup line listing its active modules.
 When disabled, it writes one startup line indicating that state.
-Otherwise, initialization, rollback, and shutdown failures are logged as errors.
+Startup-only mode writes one line when all optimizations have stopped. Otherwise, initialization, rollback, and shutdown failures are logged as errors.
 Original exceptions from the game or other patches continue to propagate to the caller.
 
-Version 0.1.1 removed separate JSON output, output directory creation, periodic statistics and logging,
-per-type statistics, and per-lookup timing.
-The cache retains only successful results, invalidation generations, and the state needed to track successful call completion.
-
-Version 0.1.2 adds only a cache hit counter for the overlay. It does not add separate log files, periodic detailed statistics, or per-lookup timing.
-
-Existing `HarmonyStartupOptimizer/*.summary.json` files created by version 0.1.0 are not automatically deleted.
-They are no longer updated, and no new files are created. Keep them as historical measurements if needed.
-If Startup Diagnostics is enabled, its own logging continues independently.
+The optimizer creates no separate log files or periodic detailed statistics. Startup Diagnostics is optional and logs independently.
 
 ## Building and testing
 
@@ -114,13 +139,14 @@ or pass `-GameDirectory` and `-AnchorChainDirectory` to `build.ps1`.
 .\build.ps1 -Test
 ```
 
-In addition to standalone cache behavior tests, the test suite uses Sea Power's bundled Mono runtime and Harmony DLL to patch and exercise the shared API.
+In addition to standalone cache and index behavior tests, the test suite uses Sea Power's bundled Mono runtime and Harmony DLL to patch and exercise the target APIs.
 It covers other prefixes and postfixes, argument and result transformations, skipped original calls, original exceptions, missing types,
 dynamic assembly loading, recursion, multiple threads, and patch removal by owner.
-It also verifies that results from before a change are not reused when adding or removing another transpiler changes the lookup implementation.
+It also checks file-list ordering, reference index updates, independent module settings, startup timing, and common shutdown with or without the overlay.
+The suite verifies that results from before a change are not reused when adding or removing another transpiler changes the lookup implementation.
 If Startup Diagnostics is installed, tests use its actual DLL to check both patch installation orders.
 If the diagnostic DLL is absent, only the optional compatibility tests are reported as SKIP.
-The tests do not launch the game or initialize BDCM campaigns.
+The tests do not launch the game.
 
 The distribution package is generated in `dist/HarmonyStartupOptimizer`.
 To build, test, and install it locally, close the game and run:
@@ -132,13 +158,21 @@ To build, test, and install it locally, close the game and run:
 ## Source responsibilities
 
 - `TypeLookupCache.cs`: Sharing successful results, invalidation, and concurrency control, without dependencies on the game or Harmony.
+- `AssemblyTypeCache.cs` / `TypeNameCache.cs`: Reusing complete type lists and immutable runtime names during first-time searches.
 - `LookupHooks.cs`: Connecting to the shared type lookup API while preserving execution order, arguments, results, and exceptions with other patches.
+- `FileListingHooks.cs`: Per-call file membership checks while retaining the original directory scans and output list.
+- `EncyclopediaLookupHooks.cs` / `ReferenceIndex.cs`: Scoped reference indices for encyclopedia generation and their collection lifecycle.
+- `OptimizationSet.cs`: Independent module installation, rollback, and common shutdown.
 - `Plugin.cs`: Anchor Chain integration, activation checks, minimal logging, and lifecycle management.
 - `StartupOverlay.cs`: Startup status display, resolution scaling, and cleanup of the display component.
-- `StartupMonitor.cs` / `StartupLifetime.cs`: Shared startup completion monitoring, display cleanup, and optional cache shutdown.
-- `StartupSettings.cs`: Reading optional overlay and cache lifetime settings.
+- `StartupMonitor.cs` / `StartupLifetime.cs`: Shared startup completion monitoring, display cleanup, and optional shutdown of all optimizations.
+- `StartupTiming.cs`: Measuring elapsed time from process creation and fixing the result when the menu is first drawn.
+- `StartupSettings.cs`: Reading optional display, lifetime and module settings.
 - `StartupScreen.cs`: Reading the game's menu and loading screen state.
 - `ModActivation.cs`: Reading Sea Power's mod activation state.
 - `PatchRegistry.cs`: Installing, rolling back, and removing only this mod's Harmony patches.
 
-Support for lookups other than types would use separate caches and hooks, each with its own keys and invalidation rules.
+## Source and releases
+
+- [Source code](https://github.com/mebiustos-sea-power/HarmonyStartupOptimizer)
+- [Releases](https://github.com/mebiustos-sea-power/HarmonyStartupOptimizer/releases)

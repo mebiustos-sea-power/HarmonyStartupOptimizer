@@ -2,7 +2,7 @@ using System;
 
 namespace HarmonyStartupOptimizer;
 
-// Shares startup completion between the optional display and cache shutdown.
+// Shares startup completion between the optional display and module shutdown.
 internal sealed class StartupLifetime
 {
     private readonly Func<bool> menuVisible;

@@ -7,5 +7,10 @@
   <ItemGroup>
     <Compile Remove="MonoSmoke\**\*" />
     <Compile Include="..\src\TypeLookupCache.cs" Link="TypeLookupCache.cs" />
+    <Compile Include="..\src\AssemblyTypeCache.cs" Link="AssemblyTypeCache.cs" />
+    <Compile Include="..\src\TypeNameCache.cs" Link="TypeNameCache.cs" />
+    <Compile Include="..\src\ReferenceIndex.cs" Link="ReferenceIndex.cs" />
+    <Compile Include="..\src\OptimizationSet.cs" Link="OptimizationSet.cs" />
+    <Compile Include="..\src\StartupTiming.cs" Link="StartupTiming.cs" />
   </ItemGroup>
 </Project>
