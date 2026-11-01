@@ -83,13 +83,14 @@ internal static class Program
         string root = Path.Combine(Path.GetTempPath(), "HarmonyStartupOptimizer-settings-" + Guid.NewGuid().ToString("N"));
         string directory = Path.Combine(root, "optional");
         string path = Path.Combine(directory, "startup.cfg");
+        var warnings = new List<string>();
         try
         {
             // The game normally initializes these paths before any mod reads settings.
             Type paths = Assembly.Load("BepInEx").GetType("BepInEx.Paths", true)!;
             Method(paths, "SetExecutablePath").Invoke(null, new object?[]
                 { Path.Combine(root, "Sea Power.exe"), Path.Combine(root, "BepInEx"), Path.GetDirectoryName(typeof(object).Assembly.Location), null });
-            StartupSettings defaults = StartupSettings.Read(path);
+            StartupSettings defaults = StartupSettings.Read(path, warnings.Add);
             Assert(defaults.OverlayEnabled && !defaults.StopAfterStartup && defaults.TypeLookup && defaults.FileListing && defaults.EncyclopediaLookup && !Directory.Exists(directory),
                 "Missing settings must preserve the overlay and continuous caching without creating files or directories.");
             Directory.CreateDirectory(directory);
@@ -102,12 +103,12 @@ internal static class Program
                 (Text: "[Overlay]\nEnabled = false\n[Cache]\nStopAfterStartup = false\n", Overlay: false, Stop: false)
             })
             {
-                string contents = "# User settings\n" + example.Text;
+                string contents = "# User settings = ignored comment\n" + example.Text;
                 File.WriteAllText(path, contents);
                 File.SetAttributes(path, FileAttributes.ReadOnly);
                 try
                 {
-                    StartupSettings settings = StartupSettings.Read(path);
+                    StartupSettings settings = StartupSettings.Read(path, warnings.Add);
                     Assert(settings.OverlayEnabled == example.Overlay && settings.StopAfterStartup == example.Stop,
                         "The user's startup settings or defaults for omitted options were ignored.");
                     Assert(File.ReadAllText(path) == contents, "Reading settings changed the user's file.");
@@ -117,17 +118,29 @@ internal static class Program
             foreach (string key in new[] { "TypeLookup", "FileListing", "EncyclopediaLookup" })
             {
                 File.WriteAllText(path, "[Optimizations]\n" + key + " = false\n");
-                StartupSettings settings = StartupSettings.Read(path);
+                StartupSettings settings = StartupSettings.Read(path, warnings.Add);
                 Assert(settings.TypeLookup == (key != "TypeLookup") && settings.FileListing == (key != "FileListing") &&
                     settings.EncyclopediaLookup == (key != "EncyclopediaLookup"), "A per-module option affected a different module or ignored omitted defaults.");
             }
+            Assert(warnings.Count == 0, "Absent or valid settings, comments and omitted options must not produce warnings.");
+            string misspelled = "# TypeLookpu = ignored comment\n\n  [Optimizations]  \nTypeLookpu = invalid\n FileListing = false \n" +
+                "[Overaly]\nEnabled = invalid\nUnused = true\n[Cache]\nStopAfterStartup = true\n";
+            File.WriteAllText(path, misspelled);
+            StartupSettings misspelledSettings = StartupSettings.Read(path, warnings.Add);
+            Assert(misspelledSettings.TypeLookup && !misspelledSettings.FileListing && misspelledSettings.EncyclopediaLookup &&
+                misspelledSettings.OverlayEnabled && misspelledSettings.StopAfterStartup,
+                "Unknown entries must preserve omitted defaults and leave valid settings effective.");
+            Assert(warnings.Count == 2 && warnings[0].Contains("Optimizations") && warnings[0].Contains("TypeLookpu") &&
+                warnings[1].Contains("Overaly") && warnings.All(message => message.Contains(path)),
+                "Warnings must identify the unknown key or section and its file without repeating each key in an unknown section.");
+            Assert(File.ReadAllText(path) == misspelled, "Unknown settings must be reported without rewriting the user's file.");
             foreach (string contents in new[] { "[Overlay]\nEnabled = invalid\n", "[Cache]\nStopAfterStartup = invalid\n", "[Optimizations]\nFileListing = invalid\n" })
             {
                 File.WriteAllText(path, contents);
-                try { StartupSettings.Read(path); throw new Exception("An invalid startup setting silently used a default."); }
+                try { StartupSettings.Read(path, warnings.Add); throw new Exception("An invalid startup setting silently used a default."); }
                 catch (FormatException) { }
             }
-            Console.WriteLine("PASS optional startup settings: absent and omitted defaults, independent options, read-only file unchanged, invalid values rejected");
+            Console.WriteLine("PASS optional startup settings: absent and omitted defaults, independent options, read-only file unchanged, unknown entries warned, invalid values rejected");
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, true); }
     }

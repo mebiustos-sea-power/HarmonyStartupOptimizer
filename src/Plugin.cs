@@ -28,7 +28,7 @@ public sealed class Plugin : IAnchorChainMod
             if (!ModActivation.IsEnabled(game.GetType("SeaPower.FileManager", true)!, package))
             { Log.LogInfo("Disabled in the mod manager."); return; }
 
-            StartupSettings settings = StartupSettings.Read(Path.Combine(BepInEx.Paths.ConfigPath, ModId + ".cfg"));
+            StartupSettings settings = StartupSettings.Read(Path.Combine(BepInEx.Paths.ConfigPath, ModId + ".cfg"), message => Log.LogWarning(message));
             modules = new OptimizationSet((name, error) => Log.LogError(name + " initialization failed: " + error));
             TypeLookupCache? cache = settings.TypeLookup ? new TypeLookupCache() : null;
             if (cache != null && !modules.Install(new LookupHooks(ModId, cache), true)) cache = null;

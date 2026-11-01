@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using BepInEx.Configuration;
 
@@ -16,7 +17,7 @@ internal sealed class StartupSettings
         TypeLookup = typeLookup; FileListing = fileListing; EncyclopediaLookup = encyclopediaLookup;
     }
 
-    internal static StartupSettings Read(string path)
+    internal static StartupSettings Read(string path, Action<string> warning)
     {
         try
         {
@@ -27,11 +28,42 @@ internal sealed class StartupSettings
         catch (DirectoryNotFoundException) { return new StartupSettings(); }
 
         var settings = new ConfigFile(path, false) { SaveOnConfigSet = false };
-        return new StartupSettings(ReadBoolean(settings, path, "Overlay", "Enabled", true),
+        var result = new StartupSettings(ReadBoolean(settings, path, "Overlay", "Enabled", true),
             ReadBoolean(settings, path, "Cache", "StopAfterStartup", false),
             ReadBoolean(settings, path, "Optimizations", "TypeLookup", true),
             ReadBoolean(settings, path, "Optimizations", "FileListing", true),
             ReadBoolean(settings, path, "Optimizations", "EncyclopediaLookup", true));
+        WarnUnknownSettings(settings, path, warning);
+        return result;
+    }
+
+    private static void WarnUnknownSettings(ConfigFile settings, string path, Action<string> warning)
+    {
+        var sections = new HashSet<string>(StringComparer.Ordinal);
+        foreach (ConfigDefinition definition in settings.Keys) sections.Add(definition.Section);
+        string section = "";
+        bool knownSection = true;
+        int lineNumber = 0;
+        // Match ConfigFile's section/key syntax; use the bound settings as the accepted names.
+        foreach (string raw in File.ReadLines(path))
+        {
+            lineNumber++;
+            string line = raw.Trim();
+            if (line.StartsWith("#", StringComparison.Ordinal)) continue;
+            if (line.StartsWith("[", StringComparison.Ordinal) && line.EndsWith("]", StringComparison.Ordinal))
+            {
+                section = line.Substring(1, line.Length - 2);
+                knownSection = sections.Contains(section);
+                if (!knownSection)
+                    warning("Unknown configuration section [" + section + "] at " + path + ":" + lineNumber + "; entries in this section are ignored.");
+                continue;
+            }
+            int separator = line.IndexOf('=');
+            if (!knownSection || separator < 0) continue;
+            string key = line.Substring(0, separator).Trim();
+            if (!settings.ContainsKey(new ConfigDefinition(section, key)))
+                warning("Unknown configuration key [" + section + "] " + key + " at " + path + ":" + lineNumber + "; this entry is ignored.");
+        }
     }
 
     private static bool ReadBoolean(ConfigFile settings, string path, string section, string key, bool defaultValue)

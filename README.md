@@ -5,7 +5,7 @@ A standalone mod that helps reduce Sea Power's startup time through faster Harmo
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.2.0`
+- Version: `0.2.1`
 - Requires: Anchor Chain
 
 ## What to expect
