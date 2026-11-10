@@ -33,7 +33,11 @@ public sealed class Plugin : IAnchorChainMod
             TypeLookupCache? cache = settings.TypeLookup ? new TypeLookupCache() : null;
             if (cache != null && !modules.Install(new LookupHooks(ModId, cache), true)) cache = null;
             if (settings.FileListing) modules.Install(new FileListingHooks(ModId + ".files", game), true);
-            if (settings.EncyclopediaLookup) modules.Install(new EncyclopediaLookupHooks(ModId + ".encyclopedia", game), true);
+            if (settings.EncyclopediaLookup)
+            {
+                var encyclopedia = EncyclopediaLookupHooks.CreateForGame(ModId + ".encyclopedia", game, Log.LogWarning);
+                if (encyclopedia != null) modules.Install(encyclopedia, true);
+            }
             if (modules.ActiveNames.Length == 0)
             { modules.Stop(); Log.LogInfo("No optimizations are active."); return; }
             host = new GameObject("HarmonyStartupOptimizer");

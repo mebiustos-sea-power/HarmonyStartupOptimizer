@@ -5,7 +5,7 @@ A standalone mod that helps reduce Sea Power's startup time through faster Harmo
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.2.1`
+- Version: `0.2.2`
 - Requires: Anchor Chain
 
 ## What to expect
@@ -44,7 +44,7 @@ The first lookup still requires work to populate the caches.
 ### Game data processing
 
 - **FileListing** uses a set for duplicate checks in `FileManager.GetFiles(string,string)`, preserving file order, case sensitivity and mod priority. Each call still reads the current directories; file lists are not cached between calls.
-- **EncyclopediaLookup** indexes repeated reference searches while `LoadUnitsFromMetadata` builds the encyclopedia, preserving the first matching entry. Indices follow collection changes and are released when that operation finishes. This module currently supports the game assembly shipped with Sea Power `0.8.7-261021`; an unverified assembly disables this module with an error while the other modules remain available.
+- **EncyclopediaLookup** indexes repeated reference searches while `LoadUnitsFromMetadata` builds the encyclopedia, preserving the first matching entry. Indices follow collection changes and are released when that operation finishes. This module currently supports the game assembly shipped with Sea Power `0.8.7-261021`; an unverified assembly disables this module with a warning while the other modules remain available.
 
 All caches are kept in memory. No disk cache is created, and game files and other mods' files are not modified.
 

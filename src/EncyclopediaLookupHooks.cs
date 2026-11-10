@@ -25,10 +25,20 @@ internal sealed class EncyclopediaLookupHooks : IOptimizerModule
     internal EncyclopediaLookupHooks(string owner, Assembly game)
     { patches = new PatchRegistry(new Harmony(owner)); this.game = game; }
 
+    internal static EncyclopediaLookupHooks? CreateForGame(string owner, Assembly game, Action<string> warning)
+    {
+        if (SupportsGameBuild(game)) return new EncyclopediaLookupHooks(owner, game);
+        warning("Encyclopedia optimization skipped: unsupported Sea Power build.");
+        return null;
+    }
+
+    private static bool SupportsGameBuild(Assembly game) =>
+        game.ManifestModule.ModuleVersionId == new Guid("45d05d04-62a4-4675-99dd-8be00c74e539");
+
     public void Install()
     {
         if (installed != null) throw new InvalidOperationException("Encyclopedia lookup optimization is already installed.");
-        if (game.ManifestModule.ModuleVersionId != new Guid("45d05d04-62a4-4675-99dd-8be00c74e539"))
+        if (!SupportsGameBuild(game))
             throw new NotSupportedException("The encyclopedia lookup contract requires Sea Power 0.8.7-261021; this game assembly has not been verified.");
         Type manager = game.GetType("SeaPower.EncyclopedicDataManager", true)!;
         MethodInfo factory = manager.GetMethod("LoadUnitsFromMetadata", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)

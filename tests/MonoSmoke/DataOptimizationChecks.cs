@@ -68,7 +68,12 @@ internal static class DataOptimizationChecks
     private static void Encyclopedia(Assembly game)
     {
         const string owner = "mebiustos.harmonystartupoptimizer.smoke.encyclopedia";
-        var module = new EncyclopediaLookupHooks(owner, game);
+        var warnings = new List<string>();
+        var unsupported = EncyclopediaLookupHooks.CreateForGame(owner, typeof(DataOptimizationChecks).Assembly, warnings.Add);
+        Check(unsupported == null && warnings.Count == 1, "An unsupported game build should skip the encyclopedia optimization with one warning.");
+
+        var module = EncyclopediaLookupHooks.CreateForGame(owner, game, warning => throw new Exception(warning))
+            ?? throw new Exception("The verified game build skipped the encyclopedia optimization.");
         Type type = typeof(EncyclopediaLookupHooks);
         object iterator = new object();
         MethodInfo enter = type.GetMethod("Prefix", Static)!;
