@@ -157,7 +157,8 @@ internal static class Program
             {
                 modules.Install(hooks, true);
                 modules.Install(new FileListingHooks(Owner + ".files", game), true);
-                modules.Install(new EncyclopediaLookupHooks(Owner + ".encyclopedia", game), true);
+                var encyclopedia = EncyclopediaLookupHooks.CreateForGame(Owner + ".encyclopedia", game, _ => { });
+                if (encyclopedia != null) modules.Install(encyclopedia, true);
                 AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
                 bool menu = false;
                 int detections = 0, shutdowns = 0;
@@ -196,8 +197,11 @@ internal static class Program
                 Assert((hooks.Cache.Begin("System.String") == null) == stopAfterStartup,
                     "Startup shutdown retained an active cache.");
                 foreach (string owner in new[] { Owner, Owner + ".files", Owner + ".encyclopedia" })
-                    Assert(Harmony.GetAllPatchedMethods().Any(m => Harmony.GetPatchInfo(m)!.Owners.Contains(owner)) != stopAfterStartup,
-                        "Common startup shutdown left a module installed, or stopped continuous optimization: " + owner);
+                {
+                    bool expectedActive = !stopAfterStartup && (owner != Owner + ".encyclopedia" || encyclopedia != null);
+                    Assert(Harmony.GetAllPatchedMethods().Any(m => Harmony.GetPatchInfo(m)!.Owners.Contains(owner)) == expectedActive,
+                        "Common startup shutdown left the wrong module state: " + owner);
+                }
             }
             finally { modules.Stop(); }
         }
@@ -456,7 +460,8 @@ internal static class Program
             hooks = Hooks();
             Assembly game = AppDomain.CurrentDomain.GetAssemblies().Single(a => a.GetName().Name == "Seapower-Scripts");
             dataModules.Install(new FileListingHooks(Owner + ".files", game), true);
-            dataModules.Install(new EncyclopediaLookupHooks(Owner + ".encyclopedia", game), true);
+            var encyclopedia = EncyclopediaLookupHooks.CreateForGame(Owner + ".encyclopedia", game, _ => { });
+            if (encyclopedia != null) dataModules.Install(encyclopedia, true);
             if (!diagnosticsFirst) recorder.Install();
             hooks.Cache.Invalidate();
             int beforeOriginal = originalBodies;

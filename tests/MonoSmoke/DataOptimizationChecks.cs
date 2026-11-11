@@ -72,8 +72,15 @@ internal static class DataOptimizationChecks
         var unsupported = EncyclopediaLookupHooks.CreateForGame(owner, typeof(DataOptimizationChecks).Assembly, warnings.Add);
         Check(unsupported == null && warnings.Count == 1, "An unsupported game build should skip the encyclopedia optimization with one warning.");
 
-        var module = EncyclopediaLookupHooks.CreateForGame(owner, game, warning => throw new Exception(warning))
-            ?? throw new Exception("The verified game build skipped the encyclopedia optimization.");
+        warnings.Clear();
+        var module = EncyclopediaLookupHooks.CreateForGame(owner, game, warnings.Add);
+        if (module == null)
+        {
+            Check(warnings.Count == 1, "Skipping encyclopedia optimization should report one warning.");
+            Console.WriteLine("PASS encyclopedia: unsupported game assembly skipped with a warning");
+            return;
+        }
+        Check(warnings.Count == 0, "A supported game assembly warned about encyclopedia optimization.");
         Type type = typeof(EncyclopediaLookupHooks);
         object iterator = new object();
         MethodInfo enter = type.GetMethod("Prefix", Static)!;

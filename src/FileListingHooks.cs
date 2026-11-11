@@ -13,18 +13,29 @@ internal sealed class FileListingHooks : IOptimizerModule
     [ThreadStatic] private static Frame? current;
     private static FileListingHooks? installed;
     private readonly PatchRegistry patches;
-    private readonly MethodInfo target;
+    private readonly Func<MethodInfo> findTarget;
     public string Name => "FileListing";
 
-    internal FileListingHooks(string owner, Assembly game) : this(owner,
-        game.GetType("SeaPower.FileManager", true)!.GetMethod("GetFiles", new[] { typeof(string), typeof(string) })
-            ?? throw new MissingMethodException("SeaPower.FileManager", "GetFiles(string,string)")) { }
-    internal FileListingHooks(string owner, MethodInfo target)
-    { patches = new PatchRegistry(new Harmony(owner)); this.target = target; }
+    internal FileListingHooks(string owner, Assembly game) : this(owner, () => FindTarget(game)) { }
+    internal FileListingHooks(string owner, MethodInfo target) : this(owner, () => target) { }
+    private FileListingHooks(string owner, Func<MethodInfo> findTarget)
+    { patches = new PatchRegistry(new Harmony(owner)); this.findTarget = findTarget; }
+
+    private static MethodInfo FindTarget(Assembly game)
+    {
+        Type fileManager = game.GetType("SeaPower.FileManager", true)!;
+        Type? layerKind = game.GetType("SeaPower.LayerKind");
+        Type[] parameters = layerKind == null
+            ? new[] { typeof(string), typeof(string) }
+            : new[] { typeof(string), typeof(string), layerKind };
+        return fileManager.GetMethod("GetFiles", parameters) ?? throw new MissingMethodException(fileManager.FullName,
+            layerKind == null ? "GetFiles(string,string)" : "GetFiles(string,string,LayerKind)");
+    }
 
     public void Install()
     {
         if (installed != null) throw new InvalidOperationException("File-list optimization is already installed.");
+        MethodInfo target = findTarget();
         if (target.ReturnType != typeof(List<string>)) throw new InvalidOperationException("Unsupported file-list return type: " + target);
         installed = this;
         patches.Add(target, prefix: Callback(nameof(Prefix)), finalizer: Callback(nameof(Finalizer)), transpiler: Callback(nameof(Transpiler)));
