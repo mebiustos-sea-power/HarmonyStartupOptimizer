@@ -33,13 +33,13 @@ internal sealed class EncyclopediaLookupHooks : IOptimizerModule
     }
 
     private static bool SupportsGameBuild(Assembly game) =>
-        game.ManifestModule.ModuleVersionId == new Guid("45d05d04-62a4-4675-99dd-8be00c74e539");
+        game.ManifestModule.ModuleVersionId == new Guid("cc2f4c48-9fd9-47f0-a37c-896481c22c45");
 
     public void Install()
     {
         if (installed != null) throw new InvalidOperationException("Encyclopedia lookup optimization is already installed.");
         if (!SupportsGameBuild(game))
-            throw new NotSupportedException("The encyclopedia lookup contract requires Sea Power 0.8.7-261021; this game assembly has not been verified.");
+            throw new NotSupportedException("Encyclopedia optimization requires the verified Sea Power 0.9.0-261111 game assembly.");
         Type manager = game.GetType("SeaPower.EncyclopedicDataManager", true)!;
         MethodInfo factory = manager.GetMethod("LoadUnitsFromMetadata", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new MissingMethodException(manager.FullName, "LoadUnitsFromMetadata");
