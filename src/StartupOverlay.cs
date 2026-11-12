@@ -29,7 +29,7 @@ internal sealed class StartupOverlay : MonoBehaviour
         }
         catch (Exception error)
         {
-            Plugin.Log.LogError("Startup status display initialization failed: " + error);
+            OptimizerStartup.Log.LogError("Startup status display initialization failed: " + error);
             if (overlay != null) overlay.Stop();
             return null;
         }
@@ -46,7 +46,7 @@ internal sealed class StartupOverlay : MonoBehaviour
 
     private void OnGUI()
     {
-        if (stopped || Event.current.type != EventType.Repaint) return;
+        if (stopped || lifetime == null || !lifetime.CanDrawStatus || Event.current.type != EventType.Repaint) return;
         Matrix4x4 previousMatrix = GUI.matrix;
         int previousDepth = GUI.depth;
         try
@@ -58,7 +58,7 @@ internal sealed class StartupOverlay : MonoBehaviour
                 label = new GUIStyle(GUI.skin.label) { font = font, alignment = TextAnchor.MiddleCenter, wordWrap = false };
             }
             // Freeze the process-to-menu duration on the first menu repaint.
-            if (lifetime!.MenuDetected && timing!.Complete()) Refresh();
+            if (lifetime.MenuDetected && timing!.Complete()) Refresh();
             float scale = Mathf.Clamp(Screen.height / 1080f, 0.75f, 2f);
             GUI.matrix = Matrix4x4.TRS(Vector3.zero, Quaternion.identity, new Vector3(scale, scale, 1));
             GUI.depth = -10000;
@@ -79,7 +79,7 @@ internal sealed class StartupOverlay : MonoBehaviour
             GUI.Label(rect, content, label);
             // Start after rendering the menu status, rather than counting time spent
             // blocked in a startup operation before the screen can refresh.
-            lifetime!.DisplayRendered(Time.realtimeSinceStartup);
+            lifetime.DisplayRendered(Time.realtimeSinceStartup);
         }
         catch (Exception error) { Fail(error); }
         finally { GUI.matrix = previousMatrix; GUI.depth = previousDepth; }
@@ -87,7 +87,7 @@ internal sealed class StartupOverlay : MonoBehaviour
 
     private void Fail(Exception error)
     {
-        Plugin.Log.LogError("Startup status display stopped: " + error);
+        OptimizerStartup.Log.LogError("Startup status display stopped: " + error);
         Stop();
     }
 

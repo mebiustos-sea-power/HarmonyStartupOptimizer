@@ -49,6 +49,8 @@ internal static class Program
             Assembly game = Assembly.LoadFrom(Path.Combine(Path.GetDirectoryName(typeof(object).Assembly.Location)!, "Seapower-Scripts.dll"));
             _ = new StartupScreen(game);
             Console.WriteLine("PASS startup display: menu and loading-screen API bindings in the current game");
+            StartupStatusVisibility();
+            EarlyStartupChecks.Run();
             DataOptimizationChecks.Run(game);
             observer.Patch(LookupHooks.Target,
                 prefix: new HarmonyMethod(typeof(Program), nameof(OtherPrefix)),
@@ -162,7 +164,7 @@ internal static class Program
                 AccessTools.TypeByName("System.String"); AccessTools.TypeByName("System.String");
                 bool menu = false;
                 int detections = 0, shutdowns = 0;
-                var lifetime = new StartupLifetime(() => { detections++; return menu; }, display,
+                var lifetime = new StartupLifetime(() => { detections++; return menu; }, display, showLoadingStatus: true,
                     stopAfterStartup ? (Action)(() => { shutdowns++; modules.Stop(); }) : null);
                 lifetime.Tick(0);
                 lifetime.Tick(100);
@@ -207,7 +209,7 @@ internal static class Program
         }
         bool visible = false;
         int completed = 0;
-        var failedDisplay = new StartupLifetime(() => visible, true, () => completed++);
+        var failedDisplay = new StartupLifetime(() => visible, true, showLoadingStatus: false, () => completed++);
         failedDisplay.Tick(0);
         failedDisplay.DisplayUnavailable(1);
         failedDisplay.Tick(100);
@@ -217,6 +219,21 @@ internal static class Program
         failedDisplay.Tick(106);
         Assert(completed == 1, "A failed display prevented startup completion.");
         Console.WriteLine("PASS startup lifetime: continuous or startup-only caching, with or without display, reload stability and display failure");
+    }
+
+    private static void StartupStatusVisibility()
+    {
+        bool menu = false;
+        var normal = new StartupLifetime(() => menu, displayEnabled: true, showLoadingStatus: false, completed: null);
+        var early = new StartupLifetime(() => menu, displayEnabled: true, showLoadingStatus: true, completed: null);
+        normal.Tick(0);
+        early.Tick(0);
+        Assert(!normal.CanDrawStatus && early.CanDrawStatus, "The loading status must appear only on early startup.");
+        menu = true;
+        normal.Tick(1);
+        early.Tick(1);
+        Assert(normal.CanDrawStatus && early.CanDrawStatus, "Both startup paths must show results at the main menu.");
+        Console.WriteLine("PASS startup display: early loading status and menu results in both modes");
     }
 
     private static bool OtherPrefix(ref string? __0, ref Type? __result)

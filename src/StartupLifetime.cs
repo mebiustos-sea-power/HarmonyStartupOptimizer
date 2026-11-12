@@ -7,13 +7,20 @@ internal sealed class StartupLifetime
 {
     private readonly Func<bool> menuVisible;
     private readonly Action? completed;
+    private readonly bool showLoadingStatus;
     private bool waitForDisplay;
     private float nextSample, finishAt = -1;
     internal bool MenuDetected { get; private set; }
     internal bool Finished { get; private set; }
+    internal bool CanDrawStatus => !Finished && (showLoadingStatus || MenuDetected);
 
-    internal StartupLifetime(Func<bool> menuVisible, bool displayEnabled, Action? completed)
-    { this.menuVisible = menuVisible; waitForDisplay = displayEnabled; this.completed = completed; }
+    internal StartupLifetime(Func<bool> menuVisible, bool displayEnabled, bool showLoadingStatus, Action? completed)
+    {
+        this.menuVisible = menuVisible;
+        waitForDisplay = displayEnabled;
+        this.showLoadingStatus = showLoadingStatus;
+        this.completed = completed;
+    }
 
     internal bool Tick(float now)
     {

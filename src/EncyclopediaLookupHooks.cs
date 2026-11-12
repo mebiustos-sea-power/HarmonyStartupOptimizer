@@ -163,9 +163,9 @@ internal sealed class EncyclopediaLookupHooks : IOptimizerModule
         {
             // Stop only this module, report the infrastructure failure, then let
             // the original LINQ call retain its own result/exception behavior.
-            Plugin.Log.LogError("EncyclopediaLookup stopped after an error: " + error);
+            OptimizerStartup.Log.LogError("EncyclopediaLookup stopped after an error: " + error);
             try { frame.Owner.Uninstall(); }
-            catch (Exception cleanup) { Plugin.Log.LogError("EncyclopediaLookup cleanup failed: " + cleanup); }
+            catch (Exception cleanup) { OptimizerStartup.Log.LogError("EncyclopediaLookup cleanup failed: " + cleanup); }
             return source;
         }
     }

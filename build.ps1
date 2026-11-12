@@ -38,6 +38,7 @@ function Invoke-TaskProcess([string]$TaskExecutable, [string[]]$TaskArguments) {
 }
 function Invoke-TaskDotnet([string[]]$TaskArguments) { Invoke-TaskProcess $taskDotnet $TaskArguments }
 Invoke-TaskDotnet (@('build', (Join-Path $PSScriptRoot 'src\HarmonyStartupOptimizer.csproj'), '-c', 'Release', '--nologo', '--verbosity', 'minimal') + $taskProperties)
+Invoke-TaskDotnet (@('build', (Join-Path $PSScriptRoot 'early-startup\HarmonyStartupOptimizer.EarlyStartup.csproj'), '-c', 'Release', '--nologo', '--verbosity', 'minimal') + $taskProperties)
 if ($Test) {
     Invoke-TaskDotnet (@('build', (Join-Path $PSScriptRoot 'tests\HarmonyStartupOptimizer.Tests.csproj'), '-c', 'Release', '--nologo', '--verbosity', 'minimal') + $taskProperties)
     Invoke-TaskDotnet @((Join-Path $PSScriptRoot 'tests\bin\Release\net10.0\HarmonyStartupOptimizer.Tests.dll'))
@@ -60,6 +61,9 @@ Copy-Item (Join-Path $PSScriptRoot 'src\bin\Release\netstandard2.1\HarmonyStartu
 Copy-Item (Join-Path $PSScriptRoot 'package\_info.ini') $taskPackage -Force
 Copy-Item (Join-Path $PSScriptRoot 'README.md') $taskPackage -Force
 Write-Output "Package: $taskPackage"
+$taskEarlyStartup = Join-Path $PSScriptRoot 'dist\HarmonyStartupOptimizer.EarlyStartup.dll'
+Copy-Item (Join-Path $PSScriptRoot 'early-startup\bin\Release\netstandard2.1\HarmonyStartupOptimizer.EarlyStartup.dll') $taskEarlyStartup -Force
+Write-Output "Optional early startup DLL: $taskEarlyStartup"
 if ($InstallLocal) {
     if (-not (Test-Path (Join-Path $GameDirectory 'Sea Power.exe'))) { throw 'Sea Power.exe was not found.' }
     $taskGameProcesses = Get-Process -Name 'Sea Power' -ErrorAction SilentlyContinue

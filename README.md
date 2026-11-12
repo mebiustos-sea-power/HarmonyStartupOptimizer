@@ -5,7 +5,7 @@ A standalone mod that helps reduce Sea Power's startup time through faster Harmo
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.2.5`
+- Version: `0.3.0`
 - Requires: Anchor Chain
 
 ## What to expect
@@ -64,16 +64,24 @@ API mismatches and failures to install or remove patches are logged as errors.
 
 ## Installation
 
-Close Sea Power and copy the packaged `dist/HarmonyStartupOptimizer` folder into
+For manual installation, close Sea Power and extract `HarmonyStartupOptimizer-v<version>.zip` into
 the game's `Sea Power_Data/StreamingAssets/` directory.
 The DLL should be located at `Sea Power_Data/StreamingAssets/HarmonyStartupOptimizer/HarmonyStartupOptimizer.dll`.
 
 Enable Anchor Chain and Harmony Startup Optimizer in the mod manager, then restart Sea Power.
 Lookups performed before activation are not affected retroactively. Enabling or disabling the mod takes effect on the next game launch.
 
+### Optional early startup
+
+Download `HarmonyStartupOptimizer-EarlyStartup-v<version>.zip` from the GitHub release matching your installed optimizer. If you already use the matching Workshop version, download just the helper ZIP.
+
+Close Sea Power and extract the helper ZIP into the game's root directory, next to `Sea Power.exe`. The DLL should be at `BepInEx/plugins/HarmonyStartupOptimizer.EarlyStartup.dll`.
+
+The optional helper works alongside Anchor Chain. It starts the same optimizer after the game's mod compatibility check, before the initial unit data load and encyclopedia generation.
+
 ## Startup status display
 
-Shows the mod version and status at the bottom center during loading, followed by startup time and the Harmony cache hit count at the main menu.
+Shows startup time and the Harmony cache hit count at the bottom center of the main menu. When the helper starts the optimizer early, the overlay also shows the mod version and active status during loading.
 Startup time is measured from game process creation until the overlay first observes the main menu being drawn. If the type lookup optimization is disabled, only startup time is shown at the main menu.
 
 ## Settings
@@ -163,7 +171,8 @@ To build, test, and install it locally, close the game and run:
 - `FileListingHooks.cs`: Per-call file membership checks while retaining the original directory scans and output list.
 - `EncyclopediaLookupHooks.cs` / `ReferenceIndex.cs`: Scoped reference indices for encyclopedia generation and their collection lifecycle.
 - `OptimizationSet.cs`: Independent module installation, rollback, and common shutdown.
-- `Plugin.cs`: Anchor Chain integration, activation checks, minimal logging, and lifecycle management.
+- `Plugin.cs` / `OptimizerStartup.cs`: Anchor Chain integration and the shared activation, logging, and lifecycle.
+- `early-startup/EarlyStartupPlugin.cs`: Optional BepInEx entry point that starts the installed optimizer after mod compatibility checking.
 - `StartupOverlay.cs`: Startup status display, resolution scaling, and cleanup of the display component.
 - `StartupMonitor.cs` / `StartupLifetime.cs`: Shared startup completion monitoring, display cleanup, and optional shutdown of all optimizations.
 - `StartupTiming.cs`: Measuring elapsed time from process creation and fixing the result when the menu is first drawn.

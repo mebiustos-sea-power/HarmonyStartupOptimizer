@@ -9,14 +9,15 @@ internal sealed class StartupMonitor : MonoBehaviour
     private StartupLifetime? lifetime;
     private StartupOverlay? overlay;
 
-    internal static void Attach(GameObject host, Assembly game, TypeLookupCache? cache, StartupSettings settings, Action shutdown)
+    internal static void Attach(GameObject host, Assembly game, TypeLookupCache? cache, StartupSettings settings,
+        bool showLoadingStatus, Action shutdown)
     {
         StartupMonitor? monitor = null;
         try
         {
             if (!settings.OverlayEnabled && !settings.StopAfterStartup) return;
             var screen = new StartupScreen(game);
-            var lifetime = new StartupLifetime(screen.MenuVisible, settings.OverlayEnabled,
+            var lifetime = new StartupLifetime(screen.MenuVisible, settings.OverlayEnabled, showLoadingStatus,
                 settings.StopAfterStartup ? shutdown : null);
             monitor = host.AddComponent<StartupMonitor>();
             monitor.lifetime = lifetime;
@@ -25,7 +26,7 @@ internal sealed class StartupMonitor : MonoBehaviour
         }
         catch (Exception error)
         {
-            Plugin.Log.LogError("Startup completion monitoring initialization failed: " + error);
+            OptimizerStartup.Log.LogError("Startup completion monitoring initialization failed: " + error);
             if (monitor != null) monitor.Stop();
         }
     }
@@ -42,7 +43,7 @@ internal sealed class StartupMonitor : MonoBehaviour
         }
         catch (Exception error)
         {
-            Plugin.Log.LogError("Startup completion monitoring stopped: " + error);
+            OptimizerStartup.Log.LogError("Startup completion monitoring stopped: " + error);
             Stop();
         }
     }
