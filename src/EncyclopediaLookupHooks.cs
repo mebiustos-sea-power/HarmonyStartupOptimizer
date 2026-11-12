@@ -32,14 +32,18 @@ internal sealed class EncyclopediaLookupHooks : IOptimizerModule
         return null;
     }
 
-    private static bool SupportsGameBuild(Assembly game) =>
-        game.ManifestModule.ModuleVersionId == new Guid("cc2f4c48-9fd9-47f0-a37c-896481c22c45");
+    private static bool SupportsGameBuild(Assembly game)
+    {
+        Guid moduleVersionId = game.ManifestModule.ModuleVersionId;
+        return moduleVersionId == new Guid("cc2f4c48-9fd9-47f0-a37c-896481c22c45") // 0.9.0-261111
+            || moduleVersionId == new Guid("875e9708-6803-45c5-96b4-008c762358eb"); // 0.9.1-261112
+    }
 
     public void Install()
     {
         if (installed != null) throw new InvalidOperationException("Encyclopedia lookup optimization is already installed.");
         if (!SupportsGameBuild(game))
-            throw new NotSupportedException("Encyclopedia optimization requires the verified Sea Power 0.9.0-261111 game assembly.");
+            throw new NotSupportedException("Encyclopedia optimization requires a verified Sea Power game assembly.");
         Type manager = game.GetType("SeaPower.EncyclopedicDataManager", true)!;
         MethodInfo factory = manager.GetMethod("LoadUnitsFromMetadata", BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance)
             ?? throw new MissingMethodException(manager.FullName, "LoadUnitsFromMetadata");
