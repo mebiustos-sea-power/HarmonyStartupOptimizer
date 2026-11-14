@@ -5,7 +5,7 @@ A standalone mod that helps reduce Sea Power's startup time through faster Harmo
 - Mod name: `Harmony Startup Optimizer`
 - Folder / DLL: `HarmonyStartupOptimizer` / `HarmonyStartupOptimizer.dll`
 - Internal ID / Harmony owner: `mebiustos.harmonystartupoptimizer`
-- Version: `0.3.0`
+- Version: `0.3.1`
 - Requires: Anchor Chain
 
 ## What to expect
@@ -44,7 +44,7 @@ The first lookup still requires work to populate the caches.
 ### Game data processing
 
 - **FileListing** uses a set for duplicate checks in the pattern-based `FileManager.GetFiles` overload, including `LayerKind` on Sea Power 0.9.0, preserving file order, case sensitivity and mod priority. Each call still reads the current directories; file lists are not cached between calls.
-- **EncyclopediaLookup** indexes repeated reference searches while `LoadUnitsFromMetadata` builds the encyclopedia, preserving the first matching entry. Indices follow collection changes and are released when that operation finishes. This module supports the game assemblies shipped with Sea Power `0.9.0-261111` and `0.9.1-261112`. For an unverified assembly, it logs a warning and stays inactive while the other modules remain available.
+- **EncyclopediaLookup** indexes repeated reference searches while `LoadUnitsFromMetadata` builds the encyclopedia, preserving the first matching entry. Indices follow collection changes and are released when that operation finishes. This module supports the game assembly shipped with Sea Power `0.9.2-261113`. For an unverified assembly, it logs a warning and stays inactive while the other modules remain available.
 
 All caches are kept in memory. No disk cache is created, and game files and other mods' files are not modified.
 
@@ -73,7 +73,9 @@ Lookups performed before activation are not affected retroactively. Enabling or 
 
 ### Optional early startup
 
-Download `HarmonyStartupOptimizer-EarlyStartup-v<version>.zip` from the GitHub release matching your installed optimizer. If you already use the matching Workshop version, download just the helper ZIP.
+If you already have the early startup helper installed, keep using it and update Harmony Startup Optimizer as usual.
+
+For a first-time installation, download the [early startup helper ZIP from v0.3.0](https://github.com/mebiustos-sea-power/HarmonyStartupOptimizer/releases/download/v0.3.0/HarmonyStartupOptimizer-EarlyStartup-v0.3.0.zip).
 
 Close Sea Power and extract the helper ZIP into the game's root directory, next to `Sea Power.exe`. The DLL should be at `BepInEx/plugins/HarmonyStartupOptimizer.EarlyStartup.dll`.
 

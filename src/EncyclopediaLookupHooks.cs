@@ -32,12 +32,8 @@ internal sealed class EncyclopediaLookupHooks : IOptimizerModule
         return null;
     }
 
-    private static bool SupportsGameBuild(Assembly game)
-    {
-        Guid moduleVersionId = game.ManifestModule.ModuleVersionId;
-        return moduleVersionId == new Guid("cc2f4c48-9fd9-47f0-a37c-896481c22c45") // 0.9.0-261111
-            || moduleVersionId == new Guid("875e9708-6803-45c5-96b4-008c762358eb"); // 0.9.1-261112
-    }
+    private static bool SupportsGameBuild(Assembly game) =>
+        game.ManifestModule.ModuleVersionId == new Guid("0dc1c9db-9ee8-4834-a6c4-20986512fbf3"); // 0.9.2-261113
 
     public void Install()
     {
